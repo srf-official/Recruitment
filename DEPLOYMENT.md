@@ -8,11 +8,15 @@ Use the existing develop and main branches. Develop and pull requests into main 
 
 Deployment is disabled unless repository variable RECRUITMENT_DEPLOY_ENABLED is exactly true. No workflow runs on develop may deploy. Manual dispatch also requires main. Do not use pull_request_target.
 
-## Approval-dependent setup
+## Setup status
+
+Completed on 2026-10-23 after approval: deployment managed identity created, github-main federated credential saved with immutable owner/repository IDs, and Container Apps Contributor assigned at the single app resource scope. Actions secrets, GHCR package publication, PR merge and deployment enablement remain pending. The live app still runs the Microsoft starter image.
+
+## Setup checklist
 
 1. Approve publishing the container package as public. Source repository visibility does not make GHCR packages public automatically. The image must contain only application code and dependencies. Keep recruitment questions, candidate data, passwords, .env files and SQL credentials out of images and Git.
 2. Create an Azure user-assigned managed identity named id-turnb-recruitment-deploy in rg-turnb-recruitment, Central India. This is deployment authentication, separate from the eventual custom administrator login.
-3. Add a federated credential with issuer https://token.actions.githubusercontent.com, subject repo:srf-official/Recruitment:ref:refs/heads/main and audience api://AzureADTokenExchange. This authorizes only main-branch jobs from this repository to use the identity; it does not permit develop or pull-request jobs.
+3. Add a federated credential with issuer https://token.actions.githubusercontent.com, subject repo:srf-official@317729210/Recruitment@1430666934:ref:refs/heads/main and audience api://AzureADTokenExchange. This authorizes only main-branch jobs from this repository to use the identity; it does not permit develop or pull-request jobs.
 4. Grant the identity Container Apps Contributor on this single resource only:
    /subscriptions/4b23b718-8f1c-427f-ae39-f940627739cc/resourceGroups/rg-turnb-recruitment/providers/Microsoft.App/containerApps/ca-turnb-recruitment
    No subscription-wide role and no role-assignment permission are needed. Review role availability and effective permissions in Azure before granting it.
