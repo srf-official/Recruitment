@@ -1,0 +1,30 @@
+name: Validate Python container
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run bootstrap tests
+        run: python -m unittest discover -s tests -v
+      - name: Build container
+        run: docker build --tag recruitment-ci .
+      - name: Verify container startup and non-root user
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs recruitment-ci || true; docker rm -f recruitment-ci || true' EXIT
+          docker run --detach --name recruitment-ci -p 127.0.0.1:8000:8000 recruitment-ci
+          test "$(docker exec recruitment-ci id -u)" = "10001"
+          curl --fail --retry 15 --retry-all-errors --retry-delay 2 http://127.0.0.1:8000/healthz
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/)" = "503"

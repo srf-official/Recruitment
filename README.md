@@ -17,13 +17,13 @@ Make changes on `develop`, test them, then open a pull request into `main`. Use 
 
 ## Technology direction
 
-Microsoft .NET application stack, Azure hosting, and Azure SQL Database. Central India is the target region for the backend and database. Final hosting configuration is pending approval.
+Python on Azure Container Apps Consumption, with Azure SQL Database in Central India. The existing Azure app currently runs the Microsoft starter image. GitHub Actions and GHCR are the selected build and image delivery services.
 
 Administrator authentication will use an application-specific email/password account. Candidate entry requires a name and student ID, without Microsoft sign-in.
 
 ## Repository contents
 
-This repository currently contains project documentation and repository configuration. Application code, automated build/test checks, and deployment workflows will be added separately. No live deployment is configured by this initial setup.
+This change adds a Python deployment bootstrap, Dockerfile, CI and a gated deployment workflow. It does not implement recruitment features yet. The bootstrap exposes /healthz and returns 503 for assessment routes. Production deployment remains disabled until explicitly enabled after identity, registry access and release approval. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Data and configuration
 
