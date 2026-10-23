@@ -1,0 +1,52 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.trx
+
+# IDE and user settings
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local application configuration and credentials
+.env
+.env.*
+!.env.example
+local.settings.json
+appsettings.Local.json
+appsettings.*.Local.json
+*.pfx
+*.p12
+*.pem
+*.key
+*.publishsettings
+*.pubxml.user
+
+# Local runtime and package caches
+node_modules/
+.azure/
+.azurite/
+.nuget/
+*.log
+
+# Candidate records, local databases and generated exports
+candidate-data/
+responses/
+exports/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
