@@ -1,0 +1,110 @@
+name: Deploy to Azure Container Apps
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: recruitment-production
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main' && vars.RECRUITMENT_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check static/app.js
+      - run: node tests/test_browser_contract.cjs
+      - name: Define immutable image tag
+        id: image
+        shell: bash
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and verify before publishing
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" --label "org.opencontainers.image.revision=${GITHUB_SHA}" --tag "$IMAGE" .
+          trap 'docker logs recruitment-release || true; docker rm -f recruitment-release || true' EXIT
+          docker run --detach --name recruitment-release -p 127.0.0.1:8000:8000 "$IMAGE"
+          test "$(docker exec recruitment-release id -u)" = "10001"
+          curl --fail --retry 15 --retry-all-errors --retry-delay 2 http://127.0.0.1:8000/healthz
+          docker push "$IMAGE"
+      - name: Verify Azure can pull image anonymously
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/anonymous-docker"
+          docker --config "$RUNNER_TEMP/anonymous-docker" manifest inspect "$IMAGE" >/dev/null
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy existing app only
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az extension add --name containerapp --upgrade --yes
+          export APP_CURRENT="$RUNNER_TEMP/current-app.json" APP_PATCH="$RUNNER_TEMP/app-patch.json"
+          app_id=$(az containerapp show --name ca-turnb-recruitment --resource-group rg-turnb-recruitment --query id -o tsv)
+          az containerapp show --name ca-turnb-recruitment --resource-group rg-turnb-recruitment -o json > "$APP_CURRENT"
+          python scripts/prepare_revision.py
+          az rest --method patch --url "https://management.azure.com${app_id}?api-version=2025-01-01" --body "@$APP_PATCH" --output none
+      - name: Verify latest revision and public health endpoint
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            latest=$(az containerapp show -n ca-turnb-recruitment -g rg-turnb-recruitment --query properties.latestRevisionName -o tsv)
+            ready=$(az containerapp show -n ca-turnb-recruitment -g rg-turnb-recruitment --query properties.latestReadyRevisionName -o tsv)
+            deployed=$(az containerapp show -n ca-turnb-recruitment -g rg-turnb-recruitment --query 'properties.template.containers[0].image' -o tsv)
+            if [ -n "$latest" ] && [ "$latest" = "$ready" ] && [ "$deployed" = "$IMAGE" ]; then
+              host=$(az containerapp show -n ca-turnb-recruitment -g rg-turnb-recruitment --query properties.configuration.ingress.fqdn -o tsv)
+              curl --fail --retry 5 --retry-all-errors --retry-delay 3 "https://${host}/readyz"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'New revision did not become ready; inspect Azure revisions before retrying.' >&2
+          exit 1
+

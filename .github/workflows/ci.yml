@@ -1,0 +1,37 @@
+name: Validate recruitment application
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: node --check static/app.js
+      - run: node tests/test_browser_contract.cjs
+      - name: Build production container
+        run: docker build --tag recruitment-ci .
+      - name: Verify non-root startup and unconfigured fail-closed behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs recruitment-ci || true; docker rm -f recruitment-ci || true' EXIT
+          docker run --detach --name recruitment-ci -p 127.0.0.1:8000:8000 recruitment-ci
+          test "$(docker exec recruitment-ci id -u)" = "10001"
+          curl --fail --retry 15 --retry-all-errors --retry-delay 2 http://127.0.0.1:8000/healthz
+          curl --fail http://127.0.0.1:8000/
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/readyz)" = "503"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/api/admin/state)" = "503"

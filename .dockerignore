@@ -1,0 +1,11 @@
+*
+!requirements.txt
+!app.py
+!domain.py
+!store.py
+!configuration.py
+!exports.py
+!static/
+!static/**
+!scripts/
+!scripts/init_db.py
