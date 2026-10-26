@@ -11,6 +11,7 @@ class RevisionTests(unittest.TestCase):
     def test_atomic_update_preserves_environment_and_resource_settings(self):
         current = {"properties": {"configuration": {"ingress": {
             "targetPort": 80, "external": True, "transport": "auto",
+            "targetPortHttpScheme": "http", "fqdn": "existing.example.com",
         }}, "template": {"revisionSuffix": "old", "containers": [{
             "name": "starter", "image": "old", "resources": {"cpu": 0.25, "memory": "0.5Gi"},
             "env": [{"name": "DB", "secretRef": "db"}],
@@ -21,6 +22,8 @@ class RevisionTests(unittest.TestCase):
         self.assertEqual(current, original)
         self.assertEqual(result["configuration"]["ingress"]["targetPort"], 8000)
         self.assertFalse(result["configuration"]["ingress"]["allowInsecure"])
+        self.assertNotIn("targetPortHttpScheme", result["configuration"]["ingress"])
+        self.assertNotIn("fqdn", result["configuration"]["ingress"])
         template = result["template"]
         self.assertNotIn("revisionSuffix", template)
         self.assertEqual(template["containers"][0]["env"], original["properties"]["template"]["containers"][0]["env"])
