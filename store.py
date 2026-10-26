@@ -10,18 +10,20 @@ from contextlib import contextmanager
 from sqlalchemy import (BigInteger, Column, Integer, MetaData, String, Table,
                         UnicodeText, UniqueConstraint, create_engine, event, select, update)
 from sqlalchemy.engine import make_url
+from sqlalchemy.dialects.mssql import NVARCHAR
 from sqlalchemy.exc import IntegrityError
 
 metadata = MetaData()
+document_type = UnicodeText().with_variant(NVARCHAR(None), 'mssql')
 configuration = Table("recruitment_configuration", metadata,
                       Column("id", Integer, primary_key=True), Column("version", Integer, nullable=False),
-                      Column("payload", UnicodeText, nullable=False))
+                      Column("payload", document_type, nullable=False))
 attempts = Table("recruitment_attempts", metadata,
                  Column("id", String(100), primary_key=True), Column("test_id", String(100), nullable=False, index=True),
                  Column("student_key", String(120), nullable=False), Column("token_hash", String(64), nullable=False),
-                 Column("payload", UnicodeText, nullable=False), UniqueConstraint("test_id", "student_key", name="uq_test_student"))
+                 Column("payload", document_type, nullable=False), UniqueConstraint("test_id", "student_key", name="uq_test_student"))
 login_limits = Table("recruitment_login_limits", metadata,
-                     Column("id", String(64), primary_key=True), Column("window", BigInteger, nullable=False),
+                     Column("id", String(64), primary_key=True), Column("window", BigInteger, nullable=False, quote=True),
                      Column("count", Integer, nullable=False))
 
 
