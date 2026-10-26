@@ -85,7 +85,7 @@ jobs:
           az extension add --name containerapp --upgrade --yes
           export APP_CURRENT="$RUNNER_TEMP/current-app.json" APP_PATCH="$RUNNER_TEMP/app-patch.json"
           app_id=$(az containerapp show --name ca-turnb-recruitment --resource-group rg-turnb-recruitment --query id -o tsv)
-          az containerapp show --name ca-turnb-recruitment --resource-group rg-turnb-recruitment -o json > "$APP_CURRENT"
+          az rest --method get --url "https://management.azure.com${app_id}?api-version=2025-01-01" --output json > "$APP_CURRENT"
           python scripts/prepare_revision.py
           az rest --method patch --url "https://management.azure.com${app_id}?api-version=2025-01-01" --body "@$APP_PATCH" --output none
       - name: Verify latest revision and public health endpoint
