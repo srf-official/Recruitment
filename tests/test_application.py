@@ -110,6 +110,24 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(original['submittedAt'], later['submittedAt'])
         self.assertEqual(later['responses']['q1'], [1])
 
+    def test_matching_key_is_not_exposed_and_choices_are_attempt_bound(self):
+        state = self.state()
+        test = next(s for s in state['state']['sessions'] if s['type'] == 'aptitude')
+        test['questions'] = [{'id': 'match1', 'type': 'matching', 'text': 'Match synthetic items',
+                             'pairs': [{'left': 'A', 'right': 'a'}, {'left': 'B', 'right': 'b'}],
+                             'correctScore': 2, 'wrongScore': 0}]
+        self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 200)
+        client, csrf, _ = self.candidate()
+        public = client.get('/api/candidate/' + self.tests['aptitude']).json['test']['questions'][0]
+        self.assertNotIn('pairs', public)
+        self.assertEqual(public['leftItems'], ['A', 'B'])
+        tokens = {p['label']: p['id'] for p in public['rightChoices']}
+        result = self.answer(client, csrf, responses={'match1': [tokens['a'], tokens['b']]}, submit=True)
+        self.assertEqual(result.status_code, 200, result.json)
+        with self.app.extensions['store'].transaction() as tx:
+            a = tx.all_attempts(self.tests['aptitude'])[0]
+            self.assertEqual(grade(tx.test(self.tests['aptitude'])['questions'], a)['total'], 2)
+
     def test_timeout_rejects_late_payload_and_resume_survives_restart(self):
         c, csrf, a = self.candidate()
         self.answer(c, csrf)

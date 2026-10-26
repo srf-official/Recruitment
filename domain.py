@@ -79,8 +79,17 @@ def questions_validated(items, kind):
     return result
 
 
-def public_questions(questions):
-    return [{k: copy.deepcopy(v) for k, v in q.items() if k not in {"key", "referenceAnswer", "reviewNote"}} for q in questions]
+def public_questions(questions, match_token=None):
+    output = []
+    for q in questions:
+        public = {k: copy.deepcopy(v) for k, v in q.items() if k not in {"key", "referenceAnswer", "reviewNote", "pairs"}}
+        if q['type'] == 'matching':
+            require(match_token is not None, 'Matching requires an attempt context.')
+            public['leftItems'] = [p['left'] for p in q['pairs']]
+            public['rightChoices'] = sorted([{'id': match_token(q['id'], i), 'label': p['right']}
+                                              for i, p in enumerate(q['pairs'])], key=lambda p: p['id'])
+        output.append(public)
+    return output
 
 
 def responses_validated(questions, responses):

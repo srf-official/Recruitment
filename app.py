@@ -199,13 +199,22 @@ def create_app(settings=None):
                 return a
         raise RuleError('Attempt credentials are invalid.')
 
+    def matching_token(test_id, attempt_id, qid, index):
+        value = f'{test_id}:{attempt_id}:{qid}:{index}'
+        return hmac.new(app.secret_key.encode(), value.encode(), hashlib.sha256).hexdigest()[:32]
+
     def candidate_payload(test, attempt=None):
         public = {k: test[k] for k in ('id', 'type', 'name', 'driveId', 'closedAt')}
         public['durationMinutes'] = DURATIONS[test['type']]
         public['questionCount'] = len(test['questions'])
         if attempt is not None:
-            public['questions'] = public_questions(test['questions'])
-            public['attempts'] = [{k: copy.deepcopy(v) for k, v in attempt.items() if k not in {'manualMarks', 'shortlisted'}}]
+            signer = lambda qid, i: matching_token(test['id'], attempt['id'], qid, i)
+            public['questions'] = public_questions(test['questions'], signer)
+            candidate = {k: copy.deepcopy(v) for k, v in attempt.items() if k not in {'manualMarks', 'shortlisted'}}
+            for q in test['questions']:
+                if q['type'] == 'matching' and q['id'] in candidate['responses']:
+                    candidate['responses'][q['id']] = [None if i is None else signer(q['id'], i) for i in candidate['responses'][q['id']]]
+            public['attempts'] = [candidate]
         else:
             public['questions'], public['attempts'] = [], []
         return {'test': public, 'serverNow': now_ms()}
@@ -255,7 +264,15 @@ def create_app(settings=None):
                 sequence = data.get('sequence')
                 require(type(sequence) is int and 0 < sequence < 2**31, 'Invalid save sequence.')
                 if sequence > a['sequence']:
-                    a['responses'] = responses_validated(test['questions'], data.get('responses', {}))
+                    responses = copy.deepcopy(data.get('responses', {}))
+                    require(isinstance(responses, dict), 'Invalid response object.')
+                    for q in test['questions']:
+                        if q['type'] == 'matching' and q['id'] in responses:
+                            tokens = {matching_token(test['id'], a['id'], q['id'], i): i for i in range(len(q['pairs']))}
+                            values = responses[q['id']]
+                            require(isinstance(values, list) and all(v is None or isinstance(v, str) and v in tokens for v in values), 'Invalid matching choice.')
+                            responses[q['id']] = [None if v is None else tokens[v] for v in values]
+                    a['responses'] = responses_validated(test['questions'], responses)
                     a['sequence'] = sequence
                 if data.get('submit') is True:
                     a.update(submittedAt=now_ms(), reason='manual')
