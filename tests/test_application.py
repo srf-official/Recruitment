@@ -176,6 +176,10 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(book.active.cell(2, 4).value, 2)
         self.assertEqual(book.active.cell(2, 2).data_type, 's')
         self.assertEqual(book.active.cell(2, 7).value, 'Yes')
+        reverted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': False}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(reverted.json['changed'], 1)
+        cleared = load_workbook(io.BytesIO(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel').data))
+        self.assertEqual(cleared.active.cell(2, 7).value, 'No')
         self.assertEqual(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel?minTime=-1').status_code, 400)
 
     def test_manual_review_blocks_shortlist_then_unlocks(self):
