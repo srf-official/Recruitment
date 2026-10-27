@@ -11,7 +11,7 @@ Python production implementation of the approved recruitment dashboard. The two 
 - Individual **15 / 20 / 30 minute** candidate deadlines, enforced on the server, with name/student-ID entry and browser-based attempt resumption.
 - Response saving with ordered requests, manual submission, expiry, admin stop, and permanent submission locks. Blank and partial attempts are retained.
 - Submission confirmation lists answered/unanswered questions and a live remaining-time counter.
-- Results tables, minimum marks/time filters, per-candidate and bulk shortlisting, manual scoring, filtered XLSX export.
+- Results tables, minimum marks/time filters, per-candidate and bulk shortlisting, manual scoring, filtered XLSX export. Historical Aptitude results can be imported once per drive from a validated `.xlsx` `Shortlist` sheet; aggregate marks and recorded time are retained without inventing item answers.
 - Prompt Engineering closes after all **registered** candidates submit, or the admin stops it. The administrator downloads a ZIP containing one `studentname_studentid.docx` per registered candidate. Separate evaluation, no automatic marks.
 
 ## Data and authentication
@@ -37,3 +37,4 @@ For local development, set `APP_ENV=development`, `DATABASE_URL=sqlite:///local.
 ## Production release
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the existing Container App, Azure SQL setup, secrets, initialization, question import, deployment checks and backup process. No new Azure resources are required by this release.
+
