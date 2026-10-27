@@ -52,9 +52,16 @@ class ApplicationTests(unittest.TestCase):
                                'questions': [question()], 'closedAt': None}]}
         response = self.put_state(state, 0)
         self.assertEqual(response.status_code, 200, response.json)
-        pools = self.admin.post(f'/api/admin/drives/{self.drive}/gd/pools', json={'poolSize': 7},
-                                headers={'X-CSRF-Token': self.csrf})
-        self.assertEqual(pools.status_code, 200, pools.json)
+        if self._testMethodName != 'test_matching_key_is_not_exposed_and_choices_are_attempt_bound':
+            candidate, candidate_csrf, _ = self.candidate(student='GD-SEED')
+            submitted = self.answer(candidate, candidate_csrf, responses={'q1': [0]}, submit=True)
+            self.assertEqual(submitted.status_code, 200, submitted.json)
+            shortlisted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': True},
+                                          headers={'X-CSRF-Token': self.csrf})
+            self.assertEqual(shortlisted.status_code, 200, shortlisted.json)
+            pools = self.admin.post(f'/api/admin/drives/{self.drive}/gd/pools', json={'poolSize': 7},
+                                    headers={'X-CSRF-Token': self.csrf})
+            self.assertEqual(pools.status_code, 200, pools.json)
         current = self.state()
         current['state']['sessions'].extend([
             {'id': self.tests[kind], 'driveId': self.drive, 'type': kind,
@@ -91,7 +98,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(guest.post('/api/auth/logout', json={}).status_code, 403)
         public = guest.get('/api/candidate/' + self.tests['aptitude']).json
         self.assertEqual(public['test']['questions'], [])
-        client, _, _ = self.candidate()
+        client, _, _ = self.candidate(student='SECURITY')
         public = client.get('/api/candidate/' + self.tests['aptitude']).json
         serialized = json.dumps(public)
         self.assertNotIn('PRIVATE REFERENCE', serialized)
@@ -102,15 +109,15 @@ class ApplicationTests(unittest.TestCase):
 
     def test_individual_durations_and_duplicate_student(self):
         for kind, minutes in [('aptitude', 15), ('language', 20), ('prompt', 30)]:
-            _, _, a = self.candidate(kind)
+            _, _, a = self.candidate(kind, student='DURATION-' + kind)
             self.assertEqual(a['deadline'] - a['startedAt'], minutes * 60000)
         other = self.app.test_client()
         csrf = other.get('/api/auth/session').json['csrf']
-        response = other.post('/api/candidate/' + self.tests['aptitude'] + '/start', json={'name': 'Other', 'studentId': 'id001'}, headers={'X-CSRF-Token': csrf})
+        response = other.post('/api/candidate/' + self.tests['aptitude'] + '/start', json={'name': 'Other', 'studentId': 'duration-aptitude'}, headers={'X-CSRF-Token': csrf})
         self.assertEqual(response.status_code, 400)
 
     def test_submission_idempotency_and_save_sequence(self):
-        c, csrf, _ = self.candidate()
+        c, csrf, _ = self.candidate(student='SEQUENCE')
         self.assertEqual(self.answer(c, csrf, sequence=2).status_code, 200)
         a = self.answer(c, csrf, responses={'q1': [0]}, sequence=1).json['test']['attempts'][0]
         self.assertEqual(a['responses']['q1'], [1])
@@ -127,7 +134,7 @@ class ApplicationTests(unittest.TestCase):
                              'pairs': [{'left': 'A', 'right': 'a'}, {'left': 'B', 'right': 'b'}],
                              'correctScore': 2, 'wrongScore': 0}]
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 200)
-        client, csrf, _ = self.candidate()
+        client, csrf, _ = self.candidate(student='MATCHING')
         public = client.get('/api/candidate/' + self.tests['aptitude']).json['test']['questions'][0]
         self.assertNotIn('pairs', public)
         self.assertEqual(public['leftItems'], ['A', 'B'])
@@ -139,17 +146,17 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(grade(tx.test(self.tests['aptitude'])['questions'], a)['total'], 2)
 
     def test_timeout_rejects_late_payload_and_resume_survives_restart(self):
-        c, csrf, a = self.candidate()
+        c, csrf, a = self.candidate(student='TIMEOUT')
         self.answer(c, csrf)
         with self.app.extensions['store'].transaction() as tx:
-            tx.all_attempts(self.tests['aptitude'])[0]['deadline'] = int(time.time() * 1000) - 100
+            next(x for x in tx.all_attempts(self.tests['aptitude']) if x['id'] == a['id'])['deadline'] = int(time.time() * 1000) - 100
         result = self.answer(c, csrf, responses={'q1': [0]}, sequence=3, submit=True)
         locked = result.json['test']['attempts'][0]
         self.assertEqual(locked['reason'], 'timeout')
         self.assertEqual(locked['responses']['q1'], [1])
         restarted = create_app(self.settings)
         with restarted.extensions['store'].transaction() as tx:
-            self.assertEqual(tx.all_attempts(self.tests['aptitude'])[0]['responses']['q1'], [1])
+            self.assertEqual(next(x for x in tx.all_attempts(self.tests['aptitude']) if x['id'] == a['id'])['responses']['q1'], [1])
         restarted.extensions['store'].engine.dispose()
 
     def test_admin_stop_saves_blank_and_partial_answers(self):
@@ -161,13 +168,14 @@ class ApplicationTests(unittest.TestCase):
         result = self.put_state(state['state'], state['revision'])
         self.assertEqual(result.status_code, 200, result.json)
         test = next(s for s in result.json['state']['sessions'] if s['type'] == 'aptitude')
-        self.assertTrue(all(a['reason'] == 'admin' for a in test['attempts']))
-        self.assertEqual(len(test['attempts'][1]['responses']), 0)
+        stopped = [a for a in test['attempts'] if a['studentId'] in {'PARTIAL', 'BLANK'}]
+        self.assertTrue(all(a['reason'] == 'admin' for a in stopped))
+        self.assertEqual(len(next(a for a in stopped if a['studentId'] == 'BLANK')['responses']), 0)
         self.assertEqual(c.get('/api/candidate/' + self.tests['aptitude']).json['test']['attempts'][0]['reason'], 'admin')
 
     def test_question_lock_and_admin_revision_conflict(self):
         state = self.state()
-        self.candidate()
+        self.candidate(student='LOCKED')
         next(s for s in state['state']['sessions'] if s['type'] == 'aptitude')['questions'][0]['text'] = 'Changed after start'
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 400)
         state = self.state()
@@ -187,7 +195,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(book.active.cell(2, 2).data_type, 's')
         self.assertEqual(book.active.cell(2, 7).value, 'Yes')
         reverted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': False}, headers={'X-CSRF-Token': self.csrf})
-        self.assertEqual(reverted.json['changed'], 1)
+        self.assertEqual(reverted.json['changed'], 2)
         cleared = load_workbook(io.BytesIO(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel').data))
         self.assertEqual(cleared.active.cell(2, 7).value, 'No')
         self.assertEqual(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel?minTime=-1').status_code, 400)
@@ -237,10 +245,11 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(results, [200] * 50)
         state = self.state()
         test = next(s for s in state['state']['sessions'] if s['type'] == 'aptitude')
-        self.assertEqual(len(test['attempts']), 50)
+        self.assertEqual(sum(a['name'].startswith('Synthetic ') for a in test['attempts']), 50)
         self.assertTrue(all(a['submittedAt'] for a in test['attempts']))
         print(f'50-client durable-store concurrency test completed in {time.monotonic()-begin:.2f}s')
 
 
 if __name__ == '__main__':
     unittest.main()
+
