@@ -23,7 +23,7 @@ from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
 from exports import excel, filename, results_rows, words
-from store import Store, login_limits, now_ms
+from store import Store, attempts, login_limits, now_ms
 
 
 def create_app(settings=None):
@@ -314,6 +314,76 @@ def create_app(settings=None):
                 a['shortlisted'] = data.get('value', True) is True
                 changed += 1
             return jsonify(changed=changed, skipped=skipped)
+
+    @app.post('/api/admin/drives/<drive_id>/delete')
+    @admin
+    def delete_drive(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and data.get('confirm') is True, 'Confirm drive deletion.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            test_ids = [s['id'] for s in tx.state['sessions'] if s['driveId'] == drive_id]
+            if test_ids:
+                tx.connection.execute(delete(attempts).where(attempts.c.test_id.in_(test_ids)))
+            tx.state['sessions'] = [s for s in tx.state['sessions'] if s['driveId'] != drive_id]
+            tx.state['drives'] = [d for d in tx.state['drives'] if d['id'] != drive_id]
+            return jsonify(deleted=True, tests=len(test_ids))
+
+    @app.post('/api/admin/drives/<drive_id>/gd/pools')
+    @admin
+    def generate_gd_pools(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and type(data.get('poolSize')) is int and 1 <= data['poolSize'] <= 100, 'Pool size must be between 1 and 100.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            aptitude = next((s for s in tx.state['sessions'] if s['driveId'] == drive_id and s['type'] == 'aptitude'), None)
+            require(aptitude is not None, 'Generate the Aptitude link before creating GD pools.')
+            tx.expire(aptitude['id'])
+            aptitude_attempts = tx.all_attempts(aptitude['id'])
+            require(aptitude.get('closedAt') or all(a.get('submittedAt') for a in aptitude_attempts), 'Finish Aptitude before generating GD pools.')
+            selected = {}
+            for candidate in aptitude_attempts:
+                if candidate.get('shortlisted') and candidate.get('submittedAt'):
+                    key = student_key(candidate['studentId'])
+                    prior = selected.get(key)
+                    if prior is None or candidate.get('startedAt', 0) > prior.get('startedAt', 0):
+                        selected[key] = {'studentId': candidate['studentId'], 'name': candidate['name']}
+            roster = sorted(selected.items(), key=lambda pair: (pair[1]['name'].casefold(), pair[1]['studentId'].casefold()))
+            count = max(1, len(roster) // data['poolSize'])
+            pools = []
+            for index in range(count):
+                start = index * data['poolSize']
+                end = (index + 1) * data['poolSize'] if index < count - 1 else len(roster)
+                pools.append({'name': f'Pool {chr(65 + index)}' if index < 26 else f'Pool {index + 1}', 'members': [key for key, _ in roster[start:end]]})
+            previous = drive.get('gd') or {}
+            drive['gd'] = {'poolSize': data['poolSize'], 'pools': pools, 'candidates': {key: person for key, person in roster}, 'scores': previous.get('scores', {}), 'updatedAt': now_ms()}
+            return jsonify(gd=drive['gd'], candidateCount=len(roster))
+
+    @app.post('/api/admin/drives/<drive_id>/gd/score')
+    @admin
+    def save_gd_score(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict), 'Invalid score request.')
+        field = data.get('field')
+        require(field in {'initiative', 'content', 'communication', 'bodyLanguage'}, 'Invalid GD scoring area.')
+        value = data.get('score')
+        require(value is None or (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 5), 'Enter a score from 0 to 5.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None and isinstance(drive.get('gd'), dict), 'Generate GD pools first.')
+            key = data.get('studentKey')
+            allowed = {member for pool in drive['gd']['pools'] for member in pool['members']}
+            require(key in allowed, 'Candidate is not in this drive’s GD pools.')
+            score = drive['gd'].setdefault('scores', {}).setdefault(key, {})
+            if value is None:
+                score.pop(field, None)
+            else:
+                score[field] = float(value)
+            score['total'] = round(sum(score.get(name, 0) for name in ('initiative', 'content', 'communication', 'bodyLanguage')), 2)
+            drive['gd']['updatedAt'] = now_ms()
+            return jsonify(score=score, serverNow=now_ms())
 
     @app.post('/api/admin/tests/<test_id>/marks')
     @admin
