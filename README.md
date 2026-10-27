@@ -1,17 +1,17 @@
 # TurnB Recruitment Platform
 
-Python production implementation of the approved recruitment dashboard. The two administrator pages are **Session scheduler** and **Question overview**. `main` is the production source and deployment branch; after a verified release, `develop` retains a backup of the completed version. Git commit history records every change on both branches.
+Python production implementation of the approved recruitment dashboard. The administrator workspace opens on **Overview** and also includes **Session scheduler**, **Question overview**, and **Final scores**. `main` is the production source and deployment branch; after a verified release, `develop` retains a backup of the completed version. Git commit history records every change on both branches.
 
 ## Implemented behavior
 
 - App-specific email/password administrator login; default email `turnbrecruitment@gmail.com`. No Microsoft login is required.
-- Named drives containing Aptitude, Language & Reasoning, and Prompt Engineering links.
+- Named drives containing independently available Aptitude, Language & Reasoning, and Prompt Engineering links. A round no longer waits for earlier rounds to finish.
 - Inline question editing and confirmed deletion in a scrollable window. Default sets and drive-specific sets are independent. Question snapshots lock when the first candidate starts.
 - Single choice, multiple select, true/false, ranking, matching, and long-form text questions. Reference keys stay in authenticated administrator endpoints.
 - Individual **15 / 20 / 30 minute** candidate deadlines, enforced on the server, with name/student-ID entry and browser-based attempt resumption.
 - Response saving with ordered requests, manual submission, expiry, admin stop, and permanent submission locks. Blank and partial attempts are retained.
 - Submission confirmation lists answered/unanswered questions and a live remaining-time counter.
-- Results tables, minimum marks/time filters, per-candidate and bulk shortlisting, manual scoring, filtered XLSX export. Historical Aptitude results can be imported once per drive from a validated `.xlsx` `Shortlist` sheet; aggregate marks and recorded time are retained without inventing item answers.
+- Results tables, minimum marks/time filters, per-candidate and bulk shortlisting, manual scoring, filtered XLSX export. GD pools contain only Aptitude-shortlisted candidates, are evenly distributed with a hard maximum of 10, and preview their allocation before confirmation. Each pool records its evaluator; scores and GD shortlist checkboxes are shared across administrator sessions. Overview cards and Final scores include round-level shortlisting. Historical Aptitude results can be imported once per drive from a validated `.xlsx` `Shortlist` sheet; aggregate marks and recorded time are retained without inventing item answers.
 - Prompt Engineering closes after all **registered** candidates submit, or the admin stops it. The administrator downloads a ZIP containing one `studentname_studentid.docx` per registered candidate. Separate evaluation, no automatic marks.
 
 ## Data and authentication
