@@ -56,5 +56,22 @@ const run=code=>vm.runInContext(code,context);
  run("state.sessions[0].type='language';openResultsTable('c1')");
  assert(document.querySelector('#modal').innerHTML.includes('Min marks (out of 25)'));
  assert(document.querySelector('#modal').innerHTML.includes('Min time (minutes) (out of 20)'));
+ const resultsHtml=document.querySelector('#modal').innerHTML;
+ assert(resultsHtml.indexOf('Shortlist filtered candidates') < resultsHtml.indexOf('results-scroll'));
+ assert(!resultsHtml.slice(resultsHtml.indexOf('results-footer')).includes('Revert shortlisting'));
+ run(`state.drives=[{id:'d1',name:'College 2026'},{id:'d2',name:'Other college'}];
+ state.sessions=[
+ {id:'s1',driveId:'d1',type:'aptitude',questions:[],attempts:[{id:'a1',name:'Candidate',studentId:'ID1',startedAt:1,submittedAt:2,shortlisted:true}]},
+ {id:'s2',driveId:'d1',type:'language',questions:[],attempts:[{id:'a2',name:'Candidate',studentId:'id1',startedAt:3,submittedAt:4,shortlisted:false}]},
+ {id:'s3',driveId:'d2',type:'aptitude',questions:[],attempts:[{id:'a3',name:'Other',studentId:'ID1',startedAt:9}]},
+ {id:'s4',driveId:'d1',type:'language',questions:[],attempts:[{id:'a4',name:'Candidate',studentId:'ID1',startedAt:5,submittedAt:6,shortlisted:true}]}];
+ view='final';renderAdmin();`);
+ assert(document.querySelector('#app').innerHTML.includes('Final scores'));
+ assert.equal(run("combinedDriveScores('d1').length"),1);
+ assert.equal(run("combinedDriveScores('d1')[0].aptitude.attempt.id"),'a1');
+ assert.equal(run("combinedDriveScores('d1')[0].language.attempt.id"),'a4');
+ assert.equal(run("finalScoreCell(undefined)"),'—');
+ run("finalDriveFilter='College 2026';updateFinalDriveList()");
+ assert(!document.querySelector('#finalDriveList').innerHTML.includes('Other college'));
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});

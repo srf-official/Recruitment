@@ -29,7 +29,7 @@ function driveTests(id) { return state.sessions.filter(s => s.driveId === id); }
 function driveStatus(d) { if (d.finishedAt)
     return 'Finished'; return driveTests(d.id).some(s => !s.closedAt) ? 'Live' : driveTests(d.id).length ? 'Finished' : 'Not started'; }
 function badge(status) { return `<span class="chip status-${status === 'Live' ? 'live' : status === 'Finished' ? 'finished' : 'not'}">${status}</span>`; }
-function shell(content) { let pages = [['sessions', '◷', 'Session scheduler'], ['question', '▤', 'Question overview']]; return `<header class="masthead"><div class="tool-name">Recruitment Platform</div>${COMPANY_LOGO}</header><div class="shell"><aside><div class="navlabel">WORKSPACE</div>${pages.map(([id, icon, label]) => `<button class="nav ${view === id ? 'active' : ''}" onclick="nav('${id}')"><span>${icon}</span>${label}</button>`).join('')}<div class="aside-foot"><div class="profile"><span class="avatar">TB</span><div>Recruitment team<small>Administrator</small></div></div></div></aside><div class="workspace"><header class="topbar"><div class="breadcrumb">Workspace &nbsp; / &nbsp; <b>${pages.find(p => p[0] === view)?.[2] || 'Session scheduler'}</b></div></header><main class="main">${content}<div class="footer-note">TurnB Recruitment Platform · Responses and question sets are stored securely on the server.</div></main></div></div>`; }
+function shell(content) { let pages = [['sessions', '◷', 'Session scheduler'], ['question', '▤', 'Question overview'], ['final', '▦', 'Final scores']]; return `<header class="masthead"><div class="tool-name">Recruitment Platform</div>${COMPANY_LOGO}</header><div class="shell"><aside><div class="navlabel">WORKSPACE</div>${pages.map(([id, icon, label]) => `<button class="nav ${view === id ? 'active' : ''}" onclick="nav('${id}')"><span>${icon}</span>${label}</button>`).join('')}<div class="aside-foot"><div class="profile"><span class="avatar">TB</span><div>Recruitment team<small>Administrator</small></div></div></div></aside><div class="workspace"><header class="topbar"><div class="breadcrumb">Workspace &nbsp; / &nbsp; <b>${pages.find(p => p[0] === view)?.[2] || 'Session scheduler'}</b></div></header><main class="main">${content}<div class="footer-note">TurnB Recruitment Platform · Responses and question sets are stored securely on the server.</div></main></div></div>`; }
 function heading(title, subtitle, action = '') { return `<div class="eyebrow">RECRUITMENT WORKSPACE</div><div class="heading"><div><h1>${title}</h1><p class="sub">${subtitle}</p></div>${action}</div>`; }
 function scheduler() { return heading('Session scheduler', 'One drive. Three assessments. Everything kept together.', `<button class="primary" onclick="startDrive()">＋ Start a drive</button>`) + `<div class="filterbar"><div class="field"><label for="driveSearch">Find a drive</label><input id="driveSearch" type="search" value="${esc(filterName)}" placeholder="Search college, year or drive name" oninput="filterName=this.value;updateDriveList()"></div><button onclick="filtersOpen=!filtersOpen;render()">☷ Filter${filterStatus !== 'all' ? ' · 1' : ''}</button></div>${filtersOpen ? `<div class="filters-panel row"><label for="statusFilter">Drive status</label><select id="statusFilter" onchange="filterStatus=this.value;updateDriveList()">${['all', 'Not started', 'Live', 'Finished'].map(v => `<option value="${v}" ${filterStatus === v ? 'selected' : ''}>${v === 'all' ? 'All statuses' : v}</option>`).join('')}</select><button class="quiet small" onclick="filterName='';filterStatus='all';render()">Clear filters</button></div>` : ''}<div id="driveList">${driveList()}</div>`; }
 function updateDriveList() { document.querySelector('#driveList').innerHTML = driveList(); }
@@ -191,8 +191,7 @@ function promptAnswerText(s, a) { if (a.responses && s.questions?.length)
     return s.questions.map((q, i) => `Question ${i + 1}\n${q.text}\n\nResponse\n${String(a.responses[q.id] || '(No answer entered)')}`).join('\n\n'); return a.answer || '(No answer entered)'; }
 // Clearly labelled sample rows make the response table and exports reviewable without taking tests.
 // Offline OOXML exports: a small ZIP store writer avoids network dependencies.
-function renderAdmin() { if (view !== 'question')
-    view = 'sessions'; app.innerHTML = shell(view === 'question' ? questionOverview() : scheduler()); }
+function renderAdmin() { if (!['question', 'final'].includes(view)) view = 'sessions'; app.innerHTML = shell(view === 'question' ? questionOverview() : view === 'final' ? finalScoresPage() : scheduler()); }
 function responseRows(s) { return s.attempts.map(a => ({ a, g: gradeAttempt(s, a), minutes: elapsedMinutes(a) })).filter(r => { let f = responseFilters; for (let [key, value] of [['minMarks', r.a.submittedAt ? r.g.total : null], ['minTime', r.minutes]])
     if (f[key] !== '' && (value === null || !Number.isFinite(Number(f[key])) || value < Number(f[key])))
         return false; return true; }).sort((x, y) => Number(!!y.a.submittedAt) - Number(!!x.a.submittedAt) || (y.g.total - x.g.total) || ((x.minutes ?? Infinity) - (y.minutes ?? Infinity))); }
@@ -217,7 +216,7 @@ function confirmSubmit() { expire(); settlePromptSessions(); let { s, a } = curr
 function openResultsTable(id) { expire(); settlePromptSessions(); let s = state.sessions.find(s => s.id === id); if (s.type === 'prompt') {
     showPromptResponses(s);
     return;
-} responseSession = id; responseFilters = { minMarks: '', minTime: '' }; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by minimum marks and minimum time taken. Totals with pending questions are provisional.</p></header><section class="results-controls">${[['minMarks', 'Min marks (out of ' + (s.type === 'aptitude' ? 30 : 25) + ')'], ['minTime', 'Min time (minutes) (out of ' + durationMinutes(s) + ')']].map(([key, label]) => `<div><label for="filter-${key}">${label}</label><input id="filter-${key}" type="number" step="any" ${key === 'minTime' ? 'min="0"' : ''} oninput="responseFilters.${key}=this.value;updateResponseTable()"></div>`).join('')}<div id="response-filter-error" class="filter-error" role="alert"></div></section><div class="results-scroll" id="responseTable"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">${typeInfo(s.type).name} shortlist applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.</div></div><div class="export-actions"><button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
+} responseSession = id; responseFilters = { minMarks: '', minTime: '' }; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by minimum marks and minimum time taken. Totals with pending questions are provisional.</p></header><section class="results-controls">${[['minMarks', 'Min marks (out of ' + (s.type === 'aptitude' ? 30 : 25) + ')'], ['minTime', 'Min time (minutes) (out of ' + durationMinutes(s) + ')']].map(([key, label]) => `<div><label for="filter-${key}">${label}</label><input id="filter-${key}" type="number" step="any" ${key === 'minTime' ? 'min="0"' : ''} oninput="responseFilters.${key}=this.value;updateResponseTable()"></div>`).join('')}<div class="shortlist-actions"><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button></div><div id="response-filter-error" class="filter-error" role="alert"></div></section><div class="results-scroll" id="responseTable"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">${typeInfo(s.type).name} shortlist applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.</div></div><div class="export-actions"><button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
     modal.showModal(); }
 // Server adapter for the approved two-page UI. No assessment keys or candidate records ship in JS.
 let csrf = '', revision = 0, serverOffset = 0, adminPending = null, adminSaving = null, adminBlocked = false;
@@ -554,3 +553,45 @@ window.addEventListener('beforeunload', event => { if (candidateDirty || adminPe
     event.returnValue = '';
 } });
 bootstrap();
+
+let finalDriveFilter = '';
+function finalScoresPage() {
+    return heading('Final scores', 'Review candidate performance across the tests in each drive.', '') + `<div class="filterbar"><div class="field"><label for="finalDriveFilter">Find a drive</label><input id="finalDriveFilter" type="search" value="${esc(finalDriveFilter)}" placeholder="Search college, year or drive name" oninput="finalDriveFilter=this.value;updateFinalDriveList()"></div></div><div id="finalDriveList">${finalDriveList()}</div>`;
+}
+function finalDriveList() {
+    let drives = state.drives.filter(d => d.name.toLocaleLowerCase().includes(finalDriveFilter.trim().toLocaleLowerCase()));
+    return drives.map(d => `<button class="final-drive card" onclick="showFinalScores('${d.id}')"><span><strong>${esc(d.name)}</strong><small>${combinedDriveScores(d.id).length} candidates</small></span><span>View final scores →</span></button>`).join('') || '<div class="empty">No drives match your search.</div>';
+}
+function updateFinalDriveList() { document.querySelector('#finalDriveList').innerHTML = finalDriveList(); }
+function combinedDriveScores(driveId) {
+    let candidates = new Map();
+    for (let test of state.sessions.filter(s => s.driveId === driveId)) {
+        for (let attempt of test.attempts || []) {
+            let key = attempt.studentId.normalize('NFKC').toLowerCase();
+            let row = candidates.get(key);
+            if (!row) { row = {name: attempt.name, studentId: attempt.studentId, latest: -1}; candidates.set(key, row); }
+            if ((attempt.startedAt || 0) >= row.latest) { row.name = attempt.name; row.studentId = attempt.studentId; row.latest = attempt.startedAt || 0; }
+            if (!['aptitude', 'language'].includes(test.type)) continue;
+            let previous = row[test.type];
+            if (!previous || (attempt.startedAt || 0) > (previous.attempt.startedAt || 0) || ((attempt.startedAt || 0) === (previous.attempt.startedAt || 0) && attempt.id > previous.attempt.id)) row[test.type] = {test, attempt};
+        }
+    }
+    return [...candidates.values()].sort((a,b) => a.name.localeCompare(b.name) || a.studentId.localeCompare(b.studentId));
+}
+function finalScoreCell(result) {
+    if (!result) return '—';
+    if (!result.attempt.submittedAt) return 'In progress';
+    let score = gradeAttempt(result.test, result.attempt);
+    return `${score.total}${score.pending ? `<small>${score.pending} pending · provisional</small>` : ''}`;
+}
+async function showFinalScores(driveId) {
+    try {
+        await reloadAdmin();
+        let drive = state.drives.find(d => d.id === driveId);
+        if (!drive) return toast('Drive not found.');
+        let rows = combinedDriveScores(driveId);
+        modal.className = 'results-dialog';
+        modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>Final scores · ${esc(drive.name)}</h2><p class="sub">Latest attempt per candidate and test type. Candidates are matched by student ID within this drive. — means no attempt.</p></div><button class="quiet" onclick="modal.close()" aria-label="Close final scores">✕</button></div></header><div class="results-scroll"><table><thead><tr><th>Candidate name</th><th>Student ID</th><th>Aptitude score</th><th>Shortlisted in Aptitude</th><th>Language &amp; Reasoning score</th><th>Shortlisted in Language &amp; Reasoning</th></tr></thead><tbody>${rows.map(row => `<tr><td>${esc(row.name)}</td><td>${esc(row.studentId)}</td><td>${finalScoreCell(row.aptitude)}</td><td>${row.aptitude?.attempt.shortlisted ? 'Yes' : 'No'}</td><td>${finalScoreCell(row.language)}</td><td>${row.language?.attempt.shortlisted ? 'Yes' : 'No'}</td></tr>`).join('') || '<tr><td colspan="6">No candidates have started tests in this drive.</td></tr>'}</tbody></table></div><footer class="results-footer"><span class="sub">${rows.length} candidates · Prompt Engineering responses remain available as Word exports in Session scheduler.</span></footer>`;
+        if (!modal.open) modal.showModal();
+    } catch (error) { handleError(error); }
+}
