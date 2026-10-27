@@ -17,6 +17,8 @@ def filename(value):
 
 
 def minutes(a):
+    if isinstance(a.get('importedElapsedMinutes'), (int, float)):
+        return round(max(0, a['importedElapsedMinutes']), 4)
     return round(max(0, (a['submittedAt'] - a['startedAt']) / 60000), 4) if a.get('submittedAt') else None
 
 
@@ -87,3 +89,4 @@ def words(drive, test, attempts):
             names.add(name.casefold())
             archive.writestr(name, data.getvalue())
     return stream.getvalue()
+

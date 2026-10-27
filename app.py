@@ -12,6 +12,7 @@ import time
 import uuid
 from datetime import timedelta
 from functools import wraps
+from openpyxl import load_workbook
 
 from flask import Flask, jsonify, request, send_file, session
 from sqlalchemy import delete, insert, select, update
@@ -73,7 +74,9 @@ def create_app(settings=None):
             if problem:
                 return problem
             if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
-                if request.mimetype != 'application/json':
+                is_aptitude_import = (request.path.startswith('/api/admin/drives/') and
+                                      request.path.endswith('/aptitude/import'))
+                if request.mimetype != 'application/json' and not (is_aptitude_import and request.mimetype == 'multipart/form-data'):
                     return jsonify(error='JSON request required.'), 415
                 expected = session.get('csrf')
                 if not expected or not hmac.compare_digest(request.headers.get('X-CSRF-Token', ''), expected):
@@ -189,6 +192,73 @@ def create_app(settings=None):
         test = tx.test(test_id)
         require(test is not None, 'This test link is unavailable.')
         return test
+
+    @app.post('/api/admin/drives/<drive_id>/aptitude/import')
+    @admin
+    def import_aptitude_results(drive_id):
+        uploaded = request.files.get('file')
+        require(uploaded is not None and uploaded.filename.lower().endswith('.xlsx'),
+                'Choose the Aptitude score tracker as an .xlsx file.')
+        try:
+            workbook = load_workbook(io.BytesIO(uploaded.read()), read_only=True, data_only=True)
+            sheet = next((ws for ws in workbook.worksheets if ws.title.strip().casefold() == 'shortlist'), None)
+            require(sheet is not None, 'The workbook must contain a sheet named Shortlist.')
+            headers = [str(value or '').strip().casefold() for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
+            expected = ['full name', 'student id', 'marks obtained', 'time taken (minutes)']
+            require(headers[:4] == expected, 'Shortlist columns must be Full Name, Student ID, Marks Obtained, and Time Taken (Minutes), in that order.')
+            records, seen = [], set()
+            for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                values = list(row[:4])
+                if not any(value not in (None, '') for value in values):
+                    continue
+                require(len(values) == 4 and all(value not in (None, '') for value in values),
+                        f'Complete all four Shortlist fields on row {row_number}.')
+                name = clean_text(str(values[0]), 100, 'candidate name')
+                student_id = clean_text(str(values[1]), 60, 'student ID')
+                require(name and student_id, f'Name and student ID are required on row {row_number}.')
+                try:
+                    score, elapsed = float(values[2]), float(values[3])
+                except (TypeError, ValueError):
+                    raise RuleError(f'Marks and time must be numeric on row {row_number}.')
+                require(math.isfinite(score) and 0 <= score <= 30, f'Marks must be between 0 and 30 on row {row_number}.')
+                require(math.isfinite(elapsed) and 0 <= elapsed <= 1440, f'Time must be between 0 and 1440 minutes on row {row_number}.')
+                key = student_key(student_id)
+                require(key not in seen, f'Duplicate student ID on row {row_number}.')
+                seen.add(key)
+                records.append({'name': name, 'studentId': student_id,
+                                'importedScore': round(score, 4),
+                                'importedElapsedMinutes': round(elapsed, 4)})
+                require(len(records) <= 2000, 'The Shortlist sheet exceeds the 2,000 candidate limit.')
+            workbook.close()
+        except RuleError:
+            raise
+        except Exception:
+            raise RuleError('The workbook could not be read. Save it as a valid .xlsx file and try again.')
+        require(records, 'The Shortlist sheet contains no candidate rows.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            require(not drive.get('finishedAt'), 'Cannot import results into a finished drive.')
+            require(not any(s['driveId'] == drive_id and s['type'] == 'aptitude' for s in tx.state['sessions']),
+                    'This drive already has an Aptitude session. Import is allowed only once.')
+            now = now_ms()
+            test_id = str(uuid.uuid4())
+            test = {'id': test_id, 'driveId': drive_id, 'type': 'aptitude',
+                    'name': drive['name'] + ' · Aptitude', 'start': now, 'closedAt': now,
+                    'endReason': 'imported', 'historicalImport': True, 'questions': []}
+            tx.state['sessions'].insert(0, test)
+            for record in records:
+                elapsed_ms = int(record['importedElapsedMinutes'] * 60000)
+                started = now - elapsed_ms
+                attempt = {'id': str(uuid.uuid4()), **record, 'startedAt': started,
+                           'deadline': started + 15 * 60000, 'submittedAt': now,
+                           'reason': 'imported', 'responses': {}, 'sequence': 0,
+                           'manualMarks': {}, 'shortlisted': True,
+                           'importedSource': 'Shortlist'}
+                key_hash = hashlib.sha256(student_key(record['studentId']).encode()).hexdigest()
+                token_hash = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
+                tx.add_attempt(test_id, attempt, key_hash, token_hash)
+            return jsonify(imported=len(records), testId=test_id, serverNow=now)
 
     def candidate_attempt(tx, test):
         token = request.cookies.get('attempt_' + test['id'], '')
@@ -448,3 +518,4 @@ def create_app(settings=None):
 
 
 application = create_app()
+

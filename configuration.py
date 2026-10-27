@@ -60,7 +60,7 @@ def update_configuration(tx, incoming):
         combinations.add((did, kind))
         old = old_tests.get(sid)
         qs = questions_validated(s.get("questions", []), kind)
-        require(qs, "Add questions before generating a test link.")
+        require(qs or (old and old.get("historicalImport")), "Add questions before generating a test link.")
         if old:
             require(old["driveId"] == did and old["type"] == kind, "A test cannot change drive or type.")
             if tx.all_attempts(sid) or old.get("closedAt"):
@@ -83,3 +83,4 @@ def update_configuration(tx, incoming):
         output_tests.append(item)
     require(set(old_tests) <= test_ids, "Existing test links cannot be deleted.")
     tx.state.update(drives=output_drives, sessions=output_tests, questionSets=defaults)
+

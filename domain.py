@@ -124,6 +124,8 @@ def answered(q, value):
 
 
 def grade(questions, attempt):
+    if isinstance(attempt.get("importedScore"), (int, float)) and math.isfinite(attempt["importedScore"]):
+        return {"total": round(attempt["importedScore"], 6), "pending": 0, "results": []}
     total, pending, results = 0, 0, []
     for q in questions:
         value = attempt.get("responses", {}).get(q["id"])
@@ -151,3 +153,4 @@ def grade(questions, attempt):
 
 def student_key(value):
     return unicodedata.normalize("NFKC", value).casefold()
+
