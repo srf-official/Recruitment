@@ -404,32 +404,56 @@ def create_app(settings=None):
     @admin
     def generate_gd_pools(drive_id):
         data = request.get_json()
-        require(isinstance(data, dict) and type(data.get('poolSize')) is int and 1 <= data['poolSize'] <= 100, 'Pool size must be between 1 and 100.')
+        require(isinstance(data, dict) and type(data.get('poolSize')) is int and 1 <= data['poolSize'] <= 10, 'Pool size must be between 1 and 10.')
         with store.transaction() as tx:
             drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
             require(drive is not None, 'Drive not found.')
+            require(not drive.get('finishedAt'), 'Cannot generate GD pools for a finished drive.')
             aptitude = next((s for s in tx.state['sessions'] if s['driveId'] == drive_id and s['type'] == 'aptitude'), None)
-            require(aptitude is not None, 'Generate the Aptitude link before creating GD pools.')
+            require(aptitude is not None, 'Add Aptitude results before creating GD pools.')
             tx.expire(aptitude['id'])
             aptitude_attempts = tx.all_attempts(aptitude['id'])
-            require(aptitude.get('closedAt') or all(a.get('submittedAt') for a in aptitude_attempts), 'Finish Aptitude before generating GD pools.')
             selected = {}
             for candidate in aptitude_attempts:
-                if candidate.get('shortlisted') and candidate.get('submittedAt'):
+                if candidate.get('shortlisted'):
                     key = student_key(candidate['studentId'])
                     prior = selected.get(key)
                     if prior is None or candidate.get('startedAt', 0) > prior.get('startedAt', 0):
                         selected[key] = {'studentId': candidate['studentId'], 'name': candidate['name']}
             roster = sorted(selected.items(), key=lambda pair: (pair[1]['name'].casefold(), pair[1]['studentId'].casefold()))
-            count = max(1, len(roster) // data['poolSize'])
-            pools = []
-            for index in range(count):
-                start = index * data['poolSize']
-                end = (index + 1) * data['poolSize'] if index < count - 1 else len(roster)
-                pools.append({'name': f'Pool {chr(65 + index)}' if index < 26 else f'Pool {index + 1}', 'members': [key for key, _ in roster[start:end]]})
+            require(bool(roster), 'No Aptitude-shortlisted candidates are available for GD pools.')
+            pool_count = max(1, len(roster) // data['poolSize'])
+            while math.ceil(len(roster) / pool_count) > 10:
+                pool_count += 1
+            base, remainder = divmod(len(roster), pool_count)
+            pools, offset = [], 0
+            for index in range(pool_count):
+                size = base + (1 if index < remainder else 0)
+                members = [key for key, _ in roster[offset:offset + size]]
+                offset += size
+                name = f'Pool {chr(65 + index)}' if index < 26 else f'Pool {index + 1}'
+                previous_pools = (drive.get('gd') or {}).get('pools', [])
+                previous_pool = next((p for p in previous_pools if p.get('name') == name and p.get('members') == members), {})
+                pools.append({'name': name, 'members': members, 'evaluatorName': previous_pool.get('evaluatorName', '')})
             previous = drive.get('gd') or {}
-            drive['gd'] = {'poolSize': data['poolSize'], 'pools': pools, 'candidates': {key: person for key, person in roster}, 'scores': previous.get('scores', {}), 'updatedAt': now_ms()}
+            drive['gd'] = {'poolSize': data['poolSize'], 'pools': pools, 'candidates': {key: person for key, person in roster}, 'scores': {key: score for key, score in previous.get('scores', {}).items() if key in selected}, 'updatedAt': now_ms()}
             return jsonify(gd=drive['gd'], candidateCount=len(roster))
+
+    @app.post('/api/admin/drives/<drive_id>/gd/evaluator')
+    @admin
+    def save_gd_evaluator(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and type(data.get('poolIndex')) is int, 'Invalid evaluator request.')
+        name = clean_text(data.get('evaluatorName'), 100, 'evaluator name')
+        require(bool(name), "Enter the evaluator name.")
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            gd = drive.get('gd') if drive else None
+            require(isinstance(gd, dict) and 0 <= data['poolIndex'] < len(gd.get('pools', [])), 'GD pool not found.')
+            pool = gd['pools'][data['poolIndex']]
+            pool['evaluatorName'] = name
+            gd['updatedAt'] = now_ms()
+            return jsonify(pool=pool, serverNow=now_ms())
 
     @app.post('/api/admin/drives/<drive_id>/gd/score')
     @admin
@@ -437,17 +461,24 @@ def create_app(settings=None):
         data = request.get_json()
         require(isinstance(data, dict), 'Invalid score request.')
         field = data.get('field')
-        require(field in {'initiative', 'content', 'communication', 'bodyLanguage'}, 'Invalid GD scoring area.')
-        value = data.get('score')
-        require(value is None or (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 5), 'Enter a score from 0 to 5.')
+        if field == 'shortlisted':
+            value = data.get('value')
+            require(type(value) is bool, 'GD shortlist must be true or false.')
+        else:
+            require(field in {'initiative', 'content', 'communication', 'bodyLanguage'}, 'Invalid GD scoring area.')
+            value = data.get('score')
+            require(value is None or (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 5), 'Enter a score from 0 to 5.')
         with store.transaction() as tx:
             drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
             require(drive is not None and isinstance(drive.get('gd'), dict), 'Generate GD pools first.')
             key = data.get('studentKey')
-            allowed = {member for pool in drive['gd']['pools'] for member in pool['members']}
-            require(key in allowed, 'Candidate is not in this drive’s GD pools.')
+            assigned_pool = next((pool for pool in drive['gd']['pools'] if key in pool['members']), None)
+            require(assigned_pool is not None, "Candidate is not in this drive GD pools.")
+            require(bool(assigned_pool.get('evaluatorName')), 'Save the pool evaluator name before entering scores or shortlisting candidates.')
             score = drive['gd'].setdefault('scores', {}).setdefault(key, {})
-            if value is None:
+            if field == 'shortlisted':
+                score['shortlisted'] = value
+            elif value is None:
                 score.pop(field, None)
             else:
                 score[field] = float(value)
