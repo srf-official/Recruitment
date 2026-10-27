@@ -70,12 +70,6 @@ def update_configuration(tx, incoming):
             item["questions"] = qs
         else:
             require(not by_drive[did].get("finishedAt"), "Cannot add tests to a finished drive.")
-            if kind in {"language", "prompt"}:
-                gd = by_drive[did].get("gd")
-                require(isinstance(gd, dict), "Generate GD pools and complete evaluations before generating the next test link.")
-                members = [key for pool in gd.get("pools", []) for key in pool.get("members", [])]
-                require(all(all(isinstance(gd.get("scores", {}).get(key, {}).get(field), (int, float)) for field in ("initiative", "content", "communication", "bodyLanguage")) for key in members),
-                        "Complete all GD evaluations before generating the next test link.")
             item = {"id": sid, "driveId": did, "type": kind, "start": now_ms(), "closedAt": None, "questions": qs}
         item["name"] = by_drive[did]["name"] + " · " + {"aptitude": "Aptitude", "language": "Language & Reasoning", "prompt": "Prompt Engineering"}[kind]
         if s.get("closedAt") or by_drive[did].get("finishedAt"):
