@@ -52,6 +52,12 @@ class ApplicationTests(unittest.TestCase):
                                'questions': [question()], 'closedAt': None}]}
         response = self.put_state(state, 0)
         self.assertEqual(response.status_code, 200, response.json)
+        candidate, candidate_csrf, _ = self.candidate()
+        submitted = self.answer(candidate, candidate_csrf, submit=True)
+        self.assertEqual(submitted.status_code, 200, submitted.json)
+        shortlisted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': True},
+                                      headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(shortlisted.status_code, 200, shortlisted.json)
         pools = self.admin.post(f'/api/admin/drives/{self.drive}/gd/pools', json={'poolSize': 7},
                                 headers={'X-CSRF-Token': self.csrf})
         self.assertEqual(pools.status_code, 200, pools.json)
@@ -244,3 +250,4 @@ class ApplicationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
