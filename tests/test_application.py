@@ -48,9 +48,19 @@ class ApplicationTests(unittest.TestCase):
         self.tests = {kind: uid() for kind in ('aptitude', 'language', 'prompt')}
         state = {'drives': [{'id': self.drive, 'name': 'Synthetic college 2026', 'finishedAt': None}],
                  'questionSets': {'aptitude': [question()], 'language': [question('text')], 'prompt': [question('text')]},
-                 'sessions': [{'id': tid, 'driveId': self.drive, 'type': kind, 'questions': [question('text' if kind != 'aptitude' else 'single')], 'closedAt': None}
-                              for kind, tid in self.tests.items()]}
+                 'sessions': [{'id': self.tests['aptitude'], 'driveId': self.drive, 'type': 'aptitude',
+                               'questions': [question()], 'closedAt': None}]}
         response = self.put_state(state, 0)
+        self.assertEqual(response.status_code, 200, response.json)
+        pools = self.admin.post(f'/api/admin/drives/{self.drive}/gd/pools', json={'poolSize': 7},
+                                headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(pools.status_code, 200, pools.json)
+        current = self.state()
+        current['state']['sessions'].extend([
+            {'id': self.tests[kind], 'driveId': self.drive, 'type': kind,
+             'questions': [question('text')], 'closedAt': None}
+            for kind in ('language', 'prompt')])
+        response = self.put_state(current['state'], current['revision'])
         self.assertEqual(response.status_code, 200, response.json)
 
     def tearDown(self):
