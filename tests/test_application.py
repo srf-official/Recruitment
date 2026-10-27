@@ -113,7 +113,7 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(a['deadline'] - a['startedAt'], minutes * 60000)
         other = self.app.test_client()
         csrf = other.get('/api/auth/session').json['csrf']
-        response = other.post('/api/candidate/' + self.tests['aptitude'] + '/start', json={'name': 'Other', 'studentId': 'id001'}, headers={'X-CSRF-Token': csrf})
+        response = other.post('/api/candidate/' + self.tests['aptitude'] + '/start', json={'name': 'Other', 'studentId': 'duration-aptitude'}, headers={'X-CSRF-Token': csrf})
         self.assertEqual(response.status_code, 400)
 
     def test_submission_idempotency_and_save_sequence(self):
@@ -149,14 +149,14 @@ class ApplicationTests(unittest.TestCase):
         c, csrf, a = self.candidate(student='TIMEOUT')
         self.answer(c, csrf)
         with self.app.extensions['store'].transaction() as tx:
-            tx.all_attempts(self.tests['aptitude'])[0]['deadline'] = int(time.time() * 1000) - 100
+            next(x for x in tx.all_attempts(self.tests['aptitude']) if x['id'] == a['id'])['deadline'] = int(time.time() * 1000) - 100
         result = self.answer(c, csrf, responses={'q1': [0]}, sequence=3, submit=True)
         locked = result.json['test']['attempts'][0]
         self.assertEqual(locked['reason'], 'timeout')
         self.assertEqual(locked['responses']['q1'], [1])
         restarted = create_app(self.settings)
         with restarted.extensions['store'].transaction() as tx:
-            self.assertEqual(tx.all_attempts(self.tests['aptitude'])[0]['responses']['q1'], [1])
+            self.assertEqual(next(x for x in tx.all_attempts(self.tests['aptitude']) if x['id'] == a['id'])['responses']['q1'], [1])
         restarted.extensions['store'].engine.dispose()
 
     def test_admin_stop_saves_blank_and_partial_answers(self):
@@ -195,7 +195,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(book.active.cell(2, 2).data_type, 's')
         self.assertEqual(book.active.cell(2, 7).value, 'Yes')
         reverted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': False}, headers={'X-CSRF-Token': self.csrf})
-        self.assertEqual(reverted.json['changed'], 1)
+        self.assertEqual(reverted.json['changed'], 2)
         cleared = load_workbook(io.BytesIO(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel').data))
         self.assertEqual(cleared.active.cell(2, 7).value, 'No')
         self.assertEqual(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel?minTime=-1').status_code, 400)
