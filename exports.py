@@ -97,14 +97,14 @@ def final_excel(drive, rows):
     sheet = book.active
     sheet.title = 'Final scores'
     headers = ['Drive name', 'Candidate name', 'Student ID', 'Aptitude score', 'Shortlisted in Aptitude',
-               'GD score (20)', 'GD recommend', 'Language & Reasoning score', 'Prompt Engineering score (10)',
-               'Interview shortlisted', 'Final status']
+               'GD score (20)', 'GD recommend', 'Language & Reasoning score', 'Interview shortlisted',
+               'Prompt Engineering score (10)', 'Final status']
     sheet.append(headers)
     for row in rows:
         sheet.append([drive['name'], row['name'], row['studentId'], row.get('aptitudeScore'),
                       'Yes' if row.get('aptitudeShortlisted') else 'No', row.get('gdScore'),
                       'Yes' if row.get('gdRecommended') else 'No', row.get('languageScore'),
-                      row.get('promptScore'), 'Yes' if row.get('interviewShortlisted') else 'No',
+                      'Yes' if row.get('interviewShortlisted') else 'No', row.get('promptScore'),
                       {'none': 'None', 'selected': 'Selected', 'on-hold': 'On hold', 'rejected': 'Rejected'}.get(row.get('outcome'), 'None')])
         for cell in sheet[sheet.max_row]:
             if isinstance(cell.value, str):
@@ -112,7 +112,7 @@ def final_excel(drive, rows):
     for cell in sheet[1]:
         cell.font = Font(bold=True, color='FFFFFF')
         cell.fill = PatternFill('solid', fgColor='038681')
-    widths = [34, 28, 20, 18, 24, 16, 18, 28, 30, 24, 18]
+    widths = [34, 28, 20, 18, 24, 16, 18, 28, 24, 30, 18]
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[sheet.cell(1, index).column_letter].width = width
     sheet.freeze_panes = 'A2'

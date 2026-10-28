@@ -73,5 +73,59 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run("finalScoreCell(undefined)"),'—');
  run("finalDriveFilter='College 2026';updateFinalDriveList()");
  assert(!document.querySelector('#finalDriveList').innerHTML.includes('Other college'));
+
+ // Final-score filters combine status and inclusive numeric conditions.
+ run(`finalDriveCurrent='d1';finalScoreFilters={d1:{aptitudeShortlisted:{values:['Yes']},gdScore:{op:'gte',value:'10.5'},languageScore:{op:'gte',value:'15'}}};
+ globalThis.filterRows=[
+ {name:'Included',studentId:'1',aptitude:{attempt:{shortlisted:true}},gdScore:10.5,languageScore:15},
+ {name:'Higher',studentId:'2',aptitude:{attempt:{shortlisted:true}},gdScore:12,languageScore:18},
+ {name:'Low GD',studentId:'3',aptitude:{attempt:{shortlisted:true}},gdScore:10,languageScore:18},
+ {name:'Low language',studentId:'4',aptitude:{attempt:{shortlisted:true}},gdScore:12,languageScore:14.5},
+ {name:'Not shortlisted',studentId:'5',aptitude:{attempt:{shortlisted:false}},gdScore:20,languageScore:25},
+ {name:'Missing score',studentId:'6',aptitude:{attempt:{shortlisted:true}},gdScore:null,languageScore:20},
+ {name:'Zero',studentId:'7',aptitude:{attempt:{shortlisted:true}},gdScore:0,languageScore:0}
+ ];`);
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'1,2');
+ run("finalScoreFilters.d1={gdScore:{op:'gte',value:'0'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).some(r=>r.studentId==='7')"),true);
+ assert.equal(run("finalRowsFiltered(filterRows).some(r=>r.studentId==='6')"),false);
+ run("finalScoreFilters.d1={gdScore:{op:'between',value:'10.5',upper:'12'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'1,2,4');
+ run("finalScoreFilters.d1={gdScore:{op:'gt',value:'12'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'5');
+ run("finalScoreFilters.d1={gdScore:{op:'lte',value:'10.5'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'1,3,7');
+ run("finalScoreFilters.d1={gdScore:{op:'lt',value:'10.5'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'3,7');
+ run("finalScoreFilters.d1={gdScore:{op:'eq',value:'10.5'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'1');
+ run("finalScoreFilters.d1={gdScore:{op:'blank'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'6');
+ run("finalScoreFilters.d1={gdScore:{op:'notblank'},name:{text:'HIGHER'}}");
+ assert.equal(run("finalRowsFiltered(filterRows).map(r=>r.studentId).join(',')"),'2');
+ run("finalScoreFilters.d1={aptitudeShortlisted:{values:[]}}");
+ assert.equal(run("finalRowsFiltered(filterRows).length"),0);
+ const emptyTable=run("finalTable(filterRows,'d1')");
+ assert(emptyTable.includes('No candidates match these filters.'));
+ assert(emptyTable.endsWith('</tbody></table></div>'));
+ assert(run("FINAL_COLUMNS.findIndex(c=>c[0]==='interviewShortlisted') < FINAL_COLUMNS.findIndex(c=>c[0]==='promptScore')"));
+ assert(!run("finalHeader()").includes('<select'));
+ assert(run("finalHeader()").includes('aria-haspopup="dialog"'));
+ // Export and bulk shortlist resolve the same filtered candidate IDs.
+ let finalRequest;
+ context.fetch=async(path,options={})=>{
+   finalRequest={path,body:JSON.parse(options.body)};
+   return {ok:true,json:async()=>({changed:2})};
+ };
+ run("state.drives=[{id:'d1',name:'Synthetic',finalDecisions:{}}];finalScoreFilters.d1={aptitudeShortlisted:{values:['Yes']},gdScore:{op:'gte',value:'10.5'},languageScore:{op:'gte',value:'15'}};combinedDriveScores=()=>filterRows;");
+ await run("shortlistFilteredFinal()");
+ assert.deepEqual(finalRequest.body.studentIds,['1','2']);
+ assert.equal(finalRequest.body.value,true);
+ run("postDownload=(path,body)=>{globalThis.lastExport={path,body}};exportFinalScores()");
+ assert.equal(run("lastExport.body.studentIds.join(',')"),'1,2');
+ await run("revertFilteredFinal()");
+ assert.deepEqual(finalRequest.body.studentIds,['1','2']);
+ assert.equal(finalRequest.body.value,false);
+
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
