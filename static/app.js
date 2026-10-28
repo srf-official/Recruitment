@@ -627,9 +627,7 @@ function loginView() { app.innerHTML = `<header class="masthead"><div class="too
     csrf = result.csrf;
     await reloadAdmin();
     view = 'sessions';
-    renderAdmin();
-    document.querySelector('#adminActions').hidden = false;
-    statusMessage('Signed in');
+    renderAdmin();    statusMessage('Signed in');
 }
 catch (e) {
     document.querySelector('#loginError').textContent = e.message;
@@ -680,9 +678,7 @@ async function bootstrap() { try {
     else if (auth.admin) {
         await reloadAdmin();
         view = 'overview';
-        render();
-        document.querySelector('#adminActions').hidden = false;
-        statusMessage('Connected');
+        render();        statusMessage('Connected');
     }
     else
         loginView();
