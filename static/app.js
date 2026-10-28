@@ -47,7 +47,7 @@ function uiIcon(name) {
 }
 function shell(content) {
     const pages = [['overview', 'Overview'], ['sessions', 'Session scheduler'], ['question', 'Question overview'], ['final', 'Final scores']];
-    return `<header class="masthead"><div class="tool-name">Recruitment Platform</div>${COMPANY_LOGO}</header><div class="shell ${view === 'overview' ? 'overview-shell' : ''}"><aside class="app-sidebar"><div class="navlabel">WORKSPACE</div><nav class="workspace-nav" aria-label="Workspace">${pages.map(([id, label]) => `<button class="nav ${view === id ? 'active' : ''}" onclick="nav('${id}')" ${view === id ? 'aria-current="page"' : ''}><span class="nav-icon nav-icon-${id}">${uiIcon(id)}</span><span class="nav-text">${label}</span></button>`).join('')}</nav><div class="aside-foot"><div class="profile"><div class="profile-identity"><span class="avatar">TB</span><div>Recruitment team<small>Administrator</small></div></div><button class="profile-signout" onclick="logout()">Sign out</button></div></div></aside><div class="workspace"><header class="topbar"><div class="breadcrumb">Workspace &nbsp; / &nbsp; <b>${pages.find(p => p[0] === view)?.[1] || 'Session scheduler'}</b></div></header><main class="main">${content}<div class="footer-note">TurnB Recruitment Platform · Responses and question sets are stored securely on the server.</div></main></div></div>`;
+    return `<header class="masthead"><div class="tool-name">Recruitment Platform</div>${COMPANY_LOGO}</header><div class="shell ${view === 'overview' ? 'overview-shell' : ''}"><aside class="app-sidebar"><div class="navlabel">WORKSPACE</div><nav class="workspace-nav" aria-label="Workspace">${pages.map(([id, label]) => `<button class="nav ${view === id ? 'active' : ''}" onclick="nav('${id}')" ${view === id ? 'aria-current="page"' : ''}><span class="nav-icon nav-icon-${id}">${uiIcon(id)}</span><span class="nav-text">${label}</span></button>`).join('')}</nav><div class="aside-foot"><div class="profile"><button class="profile-signout" onclick="logout()">Sign out</button></div></div></aside><div class="workspace"><header class="topbar"><div class="breadcrumb">Workspace &nbsp; / &nbsp; <b>${pages.find(p => p[0] === view)?.[1] || 'Session scheduler'}</b></div></header><main class="main">${content}<div class="footer-note">TurnB Recruitment Platform · Responses and question sets are stored securely on the server.</div></main></div></div>`;
 }
 function heading(title, subtitle, action = '') { return `<div class="eyebrow">RECRUITMENT WORKSPACE</div><div class="heading"><div><h1>${title}</h1><p class="sub">${subtitle}</p></div>${action}</div>`; }
 function scheduler() { return heading('Session scheduler', 'One drive. Three assessments. Everything kept together.', `<button class="primary" onclick="startDrive()">＋ Start a drive</button>`) + `<div class="filterbar"><div class="field"><label for="driveSearch">Find a drive</label><input id="driveSearch" type="search" value="${esc(filterName)}" placeholder="Search college, year or drive name" oninput="filterName=this.value;updateDriveList()"></div><button onclick="filtersOpen=!filtersOpen;render()">☷ Filter${filterStatus !== 'all' ? ' · 1' : ''}</button></div>${filtersOpen ? `<div class="filters-panel row"><label for="statusFilter">Drive status</label><select id="statusFilter" onchange="filterStatus=this.value;updateDriveList()">${['all', 'Not started', 'Live', 'Finished'].map(v => `<option value="${v}" ${filterStatus === v ? 'selected' : ''}>${v === 'all' ? 'All statuses' : v}</option>`).join('')}</select><button class="quiet small" onclick="filterName='';filterStatus='all';render()">Clear filters</button></div>` : ''}<div id="driveList">${driveList()}</div>`; }
@@ -141,7 +141,7 @@ function renderCandidate() { let { s, a } = currentQuiz(); if (!s) {
     app.innerHTML = candidateHeader(s, null) + '<div class="empty"><h1>Questions are not ready yet.</h1><p>Ask the recruitment team to configure questions and generate a new test link.</p><button onclick="goAdmin(\'question\')">Administrator</button></div>';
     return;
 } if (!a) {
-    app.innerHTML = candidateHeader(s, null) + `<main class="candidate-main"><section class="entry card"><div class="card-body"><span class="chip">${typeInfo(s.type).name}</span><h1>Ready to begin?</h1><p>${esc(s.name)}</p><div class="notice">${s.questionCount || qs.length} questions · ${durationMinutes(s)} minutes from your own start. The administrator can end the test at any time. ${s.type === 'prompt' ? 'Your response is evaluated separately.' : 'Unanswered questions score 0.'}</div><form id="entryForm"><div class="field"><label for="candidateName">Full name</label><input id="candidateName" required maxlength="100"></div><div class="field"><label for="studentId">Student ID</label><input id="studentId" required maxlength="60"></div><button class="primary" type="submit">Start test →</button></form></div></section></main>`;
+    app.innerHTML = candidateHeader(s, null) + `<main class="candidate-main"><section class="entry card"><div class="card-body"><span class="chip">${typeInfo(s.type).name}</span><h1>Ready to begin?</h1><p>${esc(s.name)}</p><div class="notice">${s.questionCount || qs.length} questions · ${durationMinutes(s)} minutes from your own start. The administrator can end the test at any time. ${s.type === 'prompt' ? 'Your response is evaluated separately.' : 'Unanswered questions score 0.'}</div><form id="entryForm">${s.type === 'aptitude' ? '<div class="field"><label for="candidateName">Full name</label><input id="candidateName" required maxlength="100"></div>' : ''}<div class="field"><label for="studentId">Student ID</label><input id="studentId" required maxlength="60" ${s.type !== 'aptitude' ? 'oninput="clearCandidateIdentity()" onblur="lookupCandidateIdentity()"' : ''}></div>${s.type !== 'aptitude' ? '<div class="field"><label for="candidateName">Full name from Aptitude</label><input id="candidateName" readonly placeholder="Enter your Student ID above"><small id="candidateIdentityMessage" role="status"></small></div>' : ''}<button class="primary" type="submit">Start test →</button></form></div></section></main>`;
     document.querySelector('#entryForm').onsubmit = startCandidate;
     return;
 } quizIndex = Math.min(quizIndex, qs.length - 1); let q = qs[quizIndex]; app.innerHTML = candidateHeader(s, a) + `<main class="candidate-main"><div class="row between" style="margin-bottom:20px"><div><h1 style="font-size:24px">${typeInfo(s.type).name}</h1><p class="sub">${esc(s.name)}</p></div><div>${esc(a.name)} · ${esc(a.studentId)}</div></div><div class="quiz-layout"><section class="card"><div class="card-head"><h2>Question ${quizIndex + 1} of ${qs.length}</h2><span class="chip">${FORMATS[q.type]}</span></div><div class="card-body"><article class="question-item" style="margin:0">${questionContext(q)}<h3>${esc(q.text)}</h3>${s.type === 'prompt' ? '' : `<p class="sub">Correct +${q.correctScore} · Wrong ${q.wrongScore} · Unanswered 0${q.type === 'text' ? ' · Manually reviewed' : ''}</p>`}${candidateQuestion(q, a.responses?.[q.id])}</article><div class="row between" style="margin-top:20px"><button ${quizIndex === 0 ? 'disabled' : ''} onclick="quizIndex--;render()">← Previous</button><button ${quizIndex === qs.length - 1 ? 'disabled' : ''} onclick="quizIndex++;render()">Next →</button></div></div></section><section class="card quiz-side"><div class="card-body"><b>Question navigator</b><p class="sub" style="margin-top:8px">${qs.filter(q => answerPresent(q, a.responses?.[q.id])).length} of ${qs.length} answered</p><div class="quiz-nav">${qs.map((x, i) => `<button class="${i === quizIndex ? 'current' : answerPresent(x, a.responses?.[x.id]) ? 'answered' : ''}" onclick="quizIndex=${i};render()">${i + 1}</button>`).join('')}</div><button class="primary" style="width:100%;margin-top:20px" onclick="confirmSubmit()">Submit test</button></div></section></div></main>`; }
@@ -207,18 +207,22 @@ function testRow(d, t) {
 function gdComplete(d) { let members = d.gd?.pools?.flatMap(p => p.members) || []; return !!d.gd && members.every(key => ['initiative','content','communication','bodyLanguage'].every(field => Number.isFinite(d.gd.scores?.[key]?.[field]))); }
 function confirmDeleteDrive(id) { let d=state.drives.find(x=>x.id===id); if(!d)return; let tests=driveTests(id), people=new Set(tests.flatMap(t=>t.attempts.map(a=>a.studentId))).size; dialog('Delete this drive and all its data?', `<div class="delete-question-confirm"><p><strong>${esc(d.name)}</strong></p><p>This permanently deletes this drive, its ${tests.length} assessment sessions, ${people} candidate records, all answers, marks, shortlist decisions and GD scores from the database.</p><p>This cannot be undone.</p></div>`, `<button onclick="modal.close()">Cancel</button><button class="danger" onclick="deleteDrive('${id}')">Delete drive and all data</button>`); }
 async function deleteDrive(id) { try { await api('/api/admin/drives/'+id+'/delete','POST',{confirm:true}); await reloadAdmin(); expandedDrive=null; modal.close(); renderAdmin(); toast('Drive and associated data deleted.'); } catch(e) { handleError(e); } }
-function gdRow(d) {
-    let count = d.gd?.pools?.reduce((n, p) => n + p.members.length, 0), complete = gdComplete(d), aptitude = driveTests(d.id).find(t => t.type === 'aptitude');
-    return `<section class="test-row gd-row"><div class="row between"><div><h3>Group Discussion (GD)</h3><p>${d.gd ? `${count} Aptitude-shortlisted candidates · ${d.gd.pools.length} pools · requested pool size ${d.gd.poolSize} · ${complete ? 'Evaluations complete' : 'Evaluation in progress'}` : 'Score candidates shortlisted from Aptitude.'}</p></div><div class="row">${badge(d.gd ? complete ? 'Finished' : 'Live' : 'Not started')}</div></div>${d.gd ? `<button class="primary small" onclick="openGdPools('${d.id}')">Open pools</button> <button class="small" onclick="askPoolSize('${d.id}')">Rebuild pools</button>` : `<button class="primary small" ${!aptitude || d.finishedAt ? 'disabled' : ''} onclick="askPoolSize('${d.id}')">Generate pools</button>${!aptitude ? '<small class="sub">Import Aptitude results or create an Aptitude test first.</small>' : ''}`}</section>`;
+function gdSource(driveId) {
+    const tests = driveTests(driveId);
+    const language = tests.find(s => s.type === 'language' && (s.shortlistAppliedAt || s.attempts?.some(a => a.shortlisted)));
+    return language || tests.find(s => s.type === 'aptitude');
 }
-function aptitudeShortlistedRoster(driveId) {
-    const session = driveTests(driveId).find(s => s.type === 'aptitude');
-    const selected = new Map();
+function gdShortlistedRoster(driveId) {
+    const session = gdSource(driveId), selected = new Map();
     for (const a of session?.attempts || []) if (a.shortlisted) {
         const key = a.studentId.normalize('NFKC').toLowerCase(), prior = selected.get(key);
         if (!prior || (a.startedAt || 0) > (prior.startedAt || 0)) selected.set(key, { name: a.name, studentId: a.studentId, startedAt: a.startedAt || 0 });
     }
     return [...selected.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name) || a[1].studentId.localeCompare(b[1].studentId));
+}
+function gdRow(d) {
+    let count = d.gd?.pools?.reduce((n, p) => n + p.members.length, 0), complete = gdComplete(d), source = gdSource(d.id);
+    return `<section class="test-row gd-row"><div class="row between"><div><h3>Group Discussion (GD)</h3>${d.gd ? `<p>${count} shortlisted candidates · ${d.gd.pools.length} pools · requested pool size ${d.gd.poolSize} · ${complete ? 'Evaluations complete' : 'Evaluation in progress'}</p>` : ''}</div><div class="row">${badge(d.gd ? complete ? 'Finished' : 'Live' : 'Not started')}</div></div>${d.gd ? `<button class="primary small" onclick="openGdPools('${d.id}')">Open pools</button> <button class="small" onclick="askPoolSize('${d.id}')">Rebuild pools</button>` : `<button class="primary small" ${!source || d.finishedAt ? 'disabled' : ''} onclick="askPoolSize('${d.id}')">Generate pools</button>${!source ? '<small class="sub">Import Aptitude results or create an Aptitude test first.</small>' : ''}`}</section>`;
 }
 function poolSizes(candidateCount, requestedSize) {
     if (!candidateCount) return [];
@@ -228,20 +232,22 @@ function poolSizes(candidateCount, requestedSize) {
     return Array.from({ length: poolCount }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 function askPoolSize(id) {
-    const drive = state.drives.find(d => d.id === id), roster = aptitudeShortlistedRoster(id);
-    if (!driveTests(id).some(t => t.type === 'aptitude')) return toast('Add Aptitude results or create an Aptitude test first.');
-    if (!roster.length) return toast('No Aptitude-shortlisted candidates are available for GD pools.');
-    dialog(drive?.gd ? 'Rebuild GD pools' : 'Generate GD pools', `<p class="sub">Only candidates shortlisted in Aptitude are included. A pool can never exceed 10 candidates.</p><div class="field"><label for="gdPoolSize">Target candidates per pool</label><input id="gdPoolSize" type="number" min="1" max="10" step="1" value="${drive?.gd?.poolSize || 7}"><small>${roster.length} Aptitude-shortlisted candidates are available.</small></div>`, `<button onclick="modal.close()">Cancel</button><button class="primary" onclick="previewGdPools('${id}')">Preview pools</button>`);
+    const drive = state.drives.find(d => d.id === id), source = gdSource(id), roster = gdShortlistedRoster(id);
+    if (!source) return toast('Add Aptitude results or create an Aptitude test first.');
+    if (!roster.length) return toast('No shortlisted candidates are available for GD pools.');
+    const sourceName = source.type === 'language' ? 'Language & Reasoning' : 'Aptitude';
+    dialog(drive?.gd ? 'Rebuild GD pools' : 'Generate GD pools', `<p class="sub">${roster.length} candidates shortlisted in ${sourceName}. A pool can never exceed 10 candidates.</p><div class="field"><label for="gdPoolSize">Target candidates per pool</label><input id="gdPoolSize" type="number" min="1" max="10" step="1" value="${drive?.gd?.poolSize || 7}"></div>`, `<button onclick="modal.close()">Cancel</button><button class="primary" onclick="previewGdPools('${id}')">Preview pools</button>`);
 }
 function previewGdPools(id) {
-    const input = document.querySelector('#gdPoolSize'), poolSize = Number(input?.value), roster = aptitudeShortlistedRoster(id);
+    const input = document.querySelector('#gdPoolSize'), poolSize = Number(input?.value), roster = gdShortlistedRoster(id), source = gdSource(id);
     if (!Number.isInteger(poolSize) || poolSize < 1 || poolSize > 10) return toast('Pool size must be between 1 and 10.');
+    if (!roster.length) return toast('No shortlisted candidates are available for GD pools.');
     const sizes = poolSizes(roster.length, poolSize);
     const rows = sizes.map((size, i) => `<div class="pool-preview-row"><b>Pool ${i < 26 ? String.fromCharCode(65 + i) : i + 1}</b><span>${size} candidates</span></div>`).join('');
-    dialog('Review GD pool allocation', `<p class="sub">${roster.length} Aptitude-shortlisted candidates will be distributed evenly. No pool exceeds 10 candidates.</p><div class="pool-preview-list">${rows}</div>`, `<button onclick="askPoolSize('${id}')">Edit pool size</button><button onclick="modal.close()">Cancel</button><button class="primary" onclick="confirmGdPools('${id}',${poolSize})">Confirm and open pools</button>`);
+    dialog('Review GD pool allocation', `<p class="sub">${roster.length} candidates shortlisted in ${source.type === 'language' ? 'Language & Reasoning' : 'Aptitude'} will be distributed evenly. No pool exceeds 10 candidates.</p><div class="pool-preview-list">${rows}</div>`, `<button onclick="askPoolSize('${id}')">Edit pool size</button><button onclick="modal.close()">Cancel</button><button class="primary" onclick="confirmGdPools('${id}',${poolSize})">Confirm and open pools</button>`);
 }
 async function confirmGdPools(id, poolSize) {
-    try { const result = await api('/api/admin/drives/' + id + '/gd/pools', 'POST', { poolSize }); await reloadAdmin(); modal.close(); openGdPools(id); toast(`${result.candidateCount} Aptitude-shortlisted candidates assigned to ${result.gd.pools.length} GD pools.`); }
+    try { const result = await api('/api/admin/drives/' + id + '/gd/pools', 'POST', { poolSize }); await reloadAdmin(); modal.close(); openGdPools(id); toast(`${result.candidateCount} shortlisted candidates assigned to ${result.gd.pools.length} GD pools.`); }
     catch (e) { handleError(e); }
 }
 function gdMarkup(d) {
@@ -253,11 +259,27 @@ function gdMarkup(d) {
             const member = d.gd.candidates?.[key] || { name: key, studentId: key }, scores = d.gd.scores?.[key] || {};
             const keyArg = encodeURIComponent(key).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16));
             return `<tr><td>${i + 1}</td><td>${esc(member.name)}<small>${esc(member.studentId)}</small></td>${fields.map(([field]) => `<td><input class="gd-score" type="number" min="0" max="5" step="0.5" value="${scores[field] ?? ''}" ${!evaluator ? 'disabled' : ''} aria-label="${esc(field)} score for ${esc(member.name)}" onchange="saveGdScore('${d.id}',decodeURIComponent('${keyArg}'),'${field}',this.value,this)"></td>`).join('')}<td class="gd-total">${scores.total ?? 0}</td><td><label class="shortlist-check"><input type="checkbox" ${scores.shortlisted ? 'checked' : ''} ${!evaluator ? 'disabled' : ''} onchange="saveGdShortlist('${d.id}',decodeURIComponent('${keyArg}'),this.checked)"> Recommend</label></td></tr>`;
-        }).join('') || '<tr><td colspan="8">No Aptitude-shortlisted candidates assigned to this pool.</td></tr>'}</tbody></table></section>`;
+        }).join('') || '<tr><td colspan="8">No shortlisted candidates assigned to this pool.</td></tr>'}</tbody></table></section>`;
     }).join('');
-    return `<header class="results-header"><div class="row between"><div><h2>GD Evaluation · ${esc(d.name)}</h2><p class="sub">Enter each area out of 5. The total is calculated out of 20 and saved as you score.</p></div><button class="small" onclick="refreshGdScores('${d.id}')">Refresh scores</button><button class="quiet" onclick="modal.close()" aria-label="Close GD evaluations">✕</button></div></header><div class="results-scroll gd-pools">${pools}</div><footer class="results-footer"><span class="sub">Scores and evaluator names are shared across administrator sessions. Closing this window only closes it on your device.</span></footer>`;
+    return `<header class="results-header"><div class="row between"><div><h2>GD Evaluation · ${esc(d.name)}</h2><p class="sub">Enter each area out of 5. The total is calculated out of 20 and saved as you score.</p></div><button class="small" onclick="refreshGdScores('${d.id}')">Refresh scores</button><button class="small danger" onclick="confirmClearGdPools('${d.id}')">Clear pools</button><button class="quiet" onclick="modal.close()" aria-label="Close GD evaluations">✕</button></div></header><div class="results-scroll gd-pools">${pools}</div><footer class="results-footer"><span class="sub">Scores and evaluator names are shared across administrator sessions. Closing this window only closes it on your device.</span></footer>`;
 }
 function openGdPools(id) { let d = state.drives.find(x => x.id === id); if (!d?.gd) return toast('Generate the GD pools first.'); stopGdRefresh(); editingGdEvaluator = null; gdDrive = id; modal.className = 'results-dialog gd-evaluation'; modal.innerHTML = gdMarkup(d); if (!modal.open) modal.showModal(); gdRefreshTimer = setInterval(() => { if (modal.open && modal.classList.contains('gd-evaluation') && gdDrive === id) refreshGdScores(id, true); else stopGdRefresh(); }, 10000); }
+function confirmClearGdPools(id) {
+    const d = state.drives.find(x => x.id === id);
+    if (!d?.gd) return;
+    dialog('Clear GD pools?', `<p>This will delete all ${d.gd.pools.length} pools, evaluator names and GD scores for <strong>${esc(d.name)}</strong>. You can generate new pools afterwards.</p>`, `<button onclick="openGdPools('${id}')">Keep pools</button><button class="danger" onclick="clearGdPools('${id}')">Clear pools and scores</button>`);
+}
+async function clearGdPools(id) {
+    try {
+        await api('/api/admin/drives/' + id + '/gd/clear', 'POST', {confirm:true});
+        stopGdRefresh();
+        gdDrive = null;
+        await reloadAdmin();
+        modal.close();
+        renderAdmin();
+        toast('GD pools and scores cleared. You can generate new pools.');
+    } catch (e) { handleError(e); }
+}
 let gdDrive = null, gdRefreshTimer = null;
 function stopGdRefresh() { if (gdRefreshTimer) clearInterval(gdRefreshTimer); gdRefreshTimer = null; }
 async function refreshGdScores(id, quiet = false) {
@@ -308,14 +330,23 @@ else if (q.type === 'ranking')
 else
     correct = JSON.stringify([...v].sort()) === JSON.stringify([...q.key].sort()); let score = correct ? q.correctScore : q.wrongScore; total += score; return { id: q.id, score, status: correct ? 'Correct' : 'Wrong' }; }); return { total: Math.round(total * 1000000) / 1000000, pending, results }; }
 let responseSession = null, responseFilters = { minMarks: '', minTime: '' }, reviewAttempt = null;
+function scoreDistribution(test) {
+    const thresholds = test.type === 'aptitude' ? [12, 18] : [10, 16];
+    const labels = [`<${thresholds[0]}`, `${thresholds[0]}–${thresholds[1]}`, `>${thresholds[1]}`];
+    const scores = test.attempts.filter(a => a.submittedAt).map(a => gradeAttempt(test, a).total);
+    const counts = [scores.filter(n => n < thresholds[0]).length, scores.filter(n => n >= thresholds[0] && n <= thresholds[1]).length, scores.filter(n => n > thresholds[1]).length];
+    const percents = counts.map(n => scores.length ? Math.round(100 * n / scores.length) : 0);
+    return `<div class="score-distribution-title">Score distribution · ${scores.length} submitted</div><div class="score-distribution-bar" role="img" aria-label="Score distribution: ${labels.map((label, i) => label + ': ' + percents[i] + '%').join(', ')}">${percents.map((pct, i) => `<span class="score-segment score-segment-${i}" style="width:${pct}%"></span>`).join('')}</div><div class="score-distribution-labels">${labels.map((label, i) => `<span><b>${label}</b><small>${percents[i]}% · ${counts[i]}</small></span>`).join('')}</div>`;
+}
 function updateResponseTable() {
  let test=state.sessions.find(x=>x.id===responseSession), rows=responseRows(test), error=filterValidation();
  document.querySelector('#response-filter-error').textContent=error;
- document.querySelector('#responseCount').textContent=rows.length+' of '+test.attempts.length+' candidates'+(test.type==='aptitude'?' · '+test.attempts.filter(a=>a.shortlisted).length+' shortlisted':'');
+ document.querySelector('#responseCount').textContent=rows.length+' of '+test.attempts.length+' candidates'+(['aptitude','language'].includes(test.type)?' · '+test.attempts.filter(a=>a.shortlisted).length+' shortlisted':'');
  let drive=state.drives.find(x=>x.id===test.driveId)?.name||test.name;
+ const chart = document.querySelector('#score-distribution'); if (chart) chart.innerHTML = scoreDistribution(test);
  if(error){document.querySelector('#responseTable').innerHTML='<div class="results-empty">'+esc(error)+'</div>';return;}
  if(!rows.length){document.querySelector('#responseTable').innerHTML='<div class="results-empty">No candidates match these filters.</div>';return;}
- let apt=test.type==='aptitude';
+ let apt=test.type==='aptitude'||test.type==='language';
  document.querySelector('#responseTable').innerHTML='<table><thead><tr><th>Drive name</th><th>Student name</th><th>Student ID</th><th>Marks obtained</th><th>Time taken (min)</th>'+(apt?'<th>Shortlisted</th>':'')+'<th></th></tr></thead><tbody>'+rows.map(({a,g,minutes})=>'<tr><td>'+esc(drive)+'</td><td>'+esc(a.name)+(a.sample?'<small>Sample candidate</small>':'')+'</td><td>'+esc(a.studentId)+'</td><td><span class="marks-total">'+(a.submittedAt?g.total:'—')+'</span>'+(g.pending&&a.submittedAt?'<small>'+g.pending+' pending · provisional</small>':'')+'</td><td>'+(minutes===null?'—':minutes.toFixed(2))+'</td>'+(apt?'<td>'+(a.shortlisted?'Shortlisted':'Not shortlisted')+(g.pending&&a.submittedAt?'<small>Complete marking first</small>':'')+'</td>':'')+'<td>'+(a.importedSource?'<span class="sub">Historical import</span>':'<button class="small" '+(!a.submittedAt?'disabled':'')+' onclick="reviewAttempt=reviewAttempt===\''+a.id+'\'?null:\''+a.id+'\';updateResponseTable()">'+(reviewAttempt===a.id?'Close review':'Review marks')+'</button>')+'</td></tr>'+(reviewAttempt===a.id?'<tr class="review-marks"><td colspan="'+(apt?7:6)+'">'+reviewMarks(test,a,g)+'</td></tr>':'')).join('')+'</tbody></table>';
 }
 function readableAnswer(q, value) { if (value === undefined || value === null || Array.isArray(value) && !value.length)
@@ -387,7 +418,7 @@ function confirmSubmit() { expire(); settlePromptSessions(); let { s, a } = curr
 function openResultsTable(id) { expire(); settlePromptSessions(); let s = state.sessions.find(s => s.id === id); if (s.type === 'prompt') {
     showPromptResponses(s);
     return;
-} responseSession = id; responseFilters = { minMarks: '', minTime: '' }; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by minimum marks and minimum time taken. Totals with pending questions are provisional.</p></header><section class="results-controls">${[['minMarks', 'Min marks (out of ' + (s.type === 'aptitude' ? 30 : 25) + ')'], ['minTime', 'Min time (minutes) (out of ' + durationMinutes(s) + ')']].map(([key, label]) => `<div><label for="filter-${key}">${label}</label><input id="filter-${key}" type="number" step="any" ${key === 'minTime' ? 'min="0"' : ''} oninput="responseFilters.${key}=this.value;updateResponseTable()"></div>`).join('')}${s.type === 'aptitude' ? '<div class="shortlist-actions"><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button></div>' : ''}<div id="response-filter-error" class="filter-error" role="alert"></div></section><div class="results-scroll" id="responseTable"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">${s.type === 'aptitude' ? 'Aptitude shortlisting applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.' : 'Language &amp; Reasoning responses are evaluated without a shortlist control here.'}</div></div><div class="export-actions"><button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
+} responseSession = id; responseFilters = { minMarks: '', minTime: '' }; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by minimum marks and minimum time taken. Totals with pending questions are provisional.</p></header><section class="results-controls">${[['minMarks', 'Min marks (out of ' + (s.type === 'aptitude' ? 30 : 25) + ')'], ['minTime', 'Min time (minutes) (out of ' + durationMinutes(s) + ')']].map(([key, label]) => `<div><label for="filter-${key}">${label}</label><input id="filter-${key}" type="number" step="any" ${key === 'minTime' ? 'min="0"' : ''} oninput="responseFilters.${key}=this.value;updateResponseTable()"></div>`).join('')}<div id="score-distribution" class="score-distribution"></div>${['aptitude','language'].includes(s.type) ? '<div class="shortlist-actions"><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button></div>' : ''}<div id="response-filter-error" class="filter-error" role="alert"></div></section><div class="results-scroll" id="responseTable"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">Shortlisting applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.</div></div><div class="export-actions"><button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
     modal.showModal(); }
 // Server adapter for the approved two-page UI. No assessment keys or candidate records ship in JS.
 let csrf = '', revision = 0, serverOffset = 0, adminPending = null, adminSaving = null, adminBlocked = false;
@@ -466,10 +497,41 @@ async function copyLink(id) { try {
 catch {
     toast('Select the link and copy it manually.');
 } }
-function startCandidate(event) {
+function clearCandidateIdentity() {
+    const name = document.querySelector('#candidateName'), message = document.querySelector('#candidateIdentityMessage');
+    if (name) name.value = '';
+    if (message) message.textContent = '';
+}
+async function lookupCandidateIdentity() {
+    const s = state.sessions[0], input = document.querySelector('#studentId'), name = document.querySelector('#candidateName'), message = document.querySelector('#candidateIdentityMessage');
+    if (!s || s.type === 'aptitude' || !input?.value.trim()) return null;
+    const requestedId = input.value.trim();
+    try {
+        const result = await api('/api/candidate/' + s.id + '/identity', 'POST', {studentId: requestedId});
+        if (input.value.trim() !== requestedId) return null;
+        name.value = result.name;
+        input.value = result.studentId;
+        if (message) message.textContent = 'Student ID verified against Aptitude.';
+        return result;
+    } catch (e) {
+        if (input.value.trim() === requestedId) {
+            name.value = '';
+            if (message) message.textContent = e.message;
+        }
+        return null;
+    }
+}
+async function startCandidate(event) {
     event.preventDefault();
-    let name = document.querySelector('#candidateName').value.trim(), studentId = document.querySelector('#studentId').value.trim();
-    if (!name || !studentId || /[\u0000-\u001f]/.test(name + studentId)) return toast('Enter a valid full name and student ID.');
+    const s = state.sessions[0], nameInput = document.querySelector('#candidateName'), idInput = document.querySelector('#studentId');
+    let name = nameInput?.value.trim() || '', studentId = idInput?.value.trim() || '';
+    if (!studentId || /[\u0000-\u001f]/.test(name + studentId)) return toast('Enter a valid Student ID.');
+    if (s.type === 'aptitude' && !name) return toast('Enter your full name.');
+    if (s.type !== 'aptitude') {
+        const identity = await lookupCandidateIdentity();
+        if (!identity) return toast('Student ID not found. Please enter the correct student ID used for Aptitude.');
+        name = identity.name; studentId = identity.studentId;
+    }
     modal.className = 'candidate-confirm';
     modal.innerHTML = `<div class="modal-head"><h2>Confirm your details</h2><button class="quiet small" onclick="modal.close()" aria-label="Close dialog">✕</button></div><div class="modal-body"><p>Please check your details before starting the test.</p><div class="candidate-detail"><span>Full name</span><strong>${esc(name)}</strong></div><div class="candidate-detail"><span>Student ID</span><strong>${esc(studentId)}</strong></div><p class="sub">Your timer starts when you continue to the test.</p></div><div class="modal-foot"><button id="editCandidateDetails">Edit details</button><button class="primary" id="confirmCandidateDetails">Continue to test</button></div>`;
     document.querySelector('#editCandidateDetails').onclick = () => modal.close();

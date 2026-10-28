@@ -113,3 +113,17 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .overview-section-heading:has(> h2){justify-content:space-between}
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 @media(max-width:660px){.shell .aside-foot{display:block;margin-top:10px;padding:12px 8px 2px}.shell .profile-signout{padding:6px 8px}.import-question-action{min-height:36px}}
+
+/* Response score distribution and compact account control. */
+.shell .profile{justify-content:flex-start}
+.shell .profile-signout{width:100%;min-height:38px;font-size:13px;text-align:center}
+.results-controls{grid-template-columns:minmax(120px,230px) minmax(120px,230px) minmax(280px,1fr) auto;align-items:end}
+.score-distribution{min-width:260px;align-self:center;padding:2px 8px}
+.score-distribution-title{font-size:11px;font-weight:650;color:#29414a;margin-bottom:7px}
+.score-distribution-bar{display:flex;overflow:hidden;height:12px;border-radius:999px;background:#e3eaeb}
+.score-segment-0{background:#d99e26}.score-segment-1{background:#53b7ad}.score-segment-2{background:#087e78}
+.score-distribution-labels{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px;color:#29414a;font-size:11px}
+.score-distribution-labels span{display:flex;justify-content:space-between;gap:4px}
+.score-distribution-labels small{color:#5f7780}
+@media(max-width:1050px){.results-controls{grid-template-columns:1fr 1fr}.score-distribution,.shortlist-actions{grid-column:1/-1}.score-distribution{padding:6px 0}}
+@media(max-width:600px){.score-distribution-labels span{display:block}.score-distribution-labels small{display:block}}

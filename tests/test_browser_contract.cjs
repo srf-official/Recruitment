@@ -55,6 +55,14 @@ const run=code=>vm.runInContext(code,context);
  assert(!document.querySelector('#responseTable').innerHTML.includes('shortlist-check'));
  run("state.sessions[0].type='language';openResultsTable('c1')");
  assert(document.querySelector('#modal').innerHTML.includes('Min marks (out of 25)'));
+ assert(document.querySelector('#score-distribution').innerHTML.includes('Score distribution'));
+ assert(document.querySelector('#modal').innerHTML.includes('Shortlist filtered candidates'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('Shortlisted'));
+ assert(!document.querySelector('#app').innerHTML.includes('Recruitment team'));
+ const chartHtml=run("scoreDistribution({type:'language',attempts:[{submittedAt:1,importedScore:9},{submittedAt:1,importedScore:16},{submittedAt:1,importedScore:17}]})");
+ assert(chartHtml.includes('33%'));
+ assert(chartHtml.includes('&lt;10') || chartHtml.includes('<10'));
+
  assert(document.querySelector('#modal').innerHTML.includes('Min time (minutes) (out of 20)'));
  const resultsHtml=document.querySelector('#modal').innerHTML;
  assert(resultsHtml.indexOf('Shortlist filtered candidates') < resultsHtml.indexOf('results-scroll'));
@@ -68,6 +76,9 @@ const run=code=>vm.runInContext(code,context);
  view='final';renderAdmin();`);
  assert(document.querySelector('#app').innerHTML.includes('Final scores'));
  assert.equal(run("combinedDriveScores('d1').length"),1);
+ assert.equal(run("gdSource('d1').type"),'language');
+ assert.equal(run("gdShortlistedRoster('d1').length"),1);
+
  assert.equal(run("combinedDriveScores('d1')[0].aptitude.attempt.id"),'a1');
  assert.equal(run("combinedDriveScores('d1')[0].language.attempt.id"),'a4');
  assert.equal(run("finalScoreCell(undefined)"),'—');

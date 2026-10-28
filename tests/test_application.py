@@ -78,6 +78,11 @@ class ApplicationTests(unittest.TestCase):
         return self.admin.put('/api/admin/state', json={'state': state, 'revision': revision}, headers={'X-CSRF-Token': self.csrf})
 
     def candidate(self, kind='aptitude', name='Test Candidate', student='ID001'):
+        if kind != 'aptitude':
+            existing = self.state()['state']['sessions'][0]['attempts']
+            if not any(a['studentId'] == student for a in existing):
+                master, master_csrf, _ = self.candidate('aptitude', name, student)
+                self.answer(master, master_csrf, submit=True)
         client = self.app.test_client()
         csrf = client.get('/api/auth/session').json['csrf']
         tid = self.tests[kind]
@@ -90,6 +95,48 @@ class ApplicationTests(unittest.TestCase):
 
     def state(self):
         return self.admin.get('/api/admin/state').json
+
+    def test_later_tests_resolve_aptitude_identity_and_reject_unknown_ids(self):
+        guest = self.app.test_client()
+        csrf = guest.get('/api/auth/session').json['csrf']
+        language = self.tests['language']
+        unknown = guest.post(f'/api/candidate/{language}/identity', json={'studentId': 'MISSING'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(unknown.status_code, 400)
+        refused = guest.post(f'/api/candidate/{language}/start', json={'name': 'Other', 'studentId': 'MISSING'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(refused.status_code, 400)
+        master, master_csrf, _ = self.candidate('aptitude', name='Canonical Name', student='MASTER-1')
+        self.answer(master, master_csrf, submit=True)
+        found = guest.post(f'/api/candidate/{language}/identity', json={'studentId': 'master-1'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(found.status_code, 200, found.json)
+        self.assertEqual(found.json['name'], 'Canonical Name')
+        started = guest.post(f'/api/candidate/{language}/start', json={'name': 'Spoofed Name', 'studentId': 'master-1'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(started.status_code, 200, started.json)
+        attempt = started.json['test']['attempts'][0]
+        self.assertEqual((attempt['name'], attempt['studentId']), ('Canonical Name', 'MASTER-1'))
+
+    def test_language_shortlist_drives_new_gd_pools_and_clear_removes_scores(self):
+        master, master_csrf, _ = self.candidate('aptitude', name='Language Candidate', student='LANG-GD')
+        self.answer(master, master_csrf, submit=True)
+        shortlisted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': True}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(shortlisted.status_code, 200)
+        language, language_csrf, attempt = self.candidate('language', name='Language Candidate', student='LANG-GD')
+        self.answer(language, language_csrf, 'language', responses={'q1': 'Essay'}, submit=True)
+        mark = self.admin.post(f'/api/admin/tests/{self.tests["language"]}/marks', json={'attemptId': attempt['id'], 'questionId': 'q1', 'score': 2}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(mark.status_code, 200, mark.json)
+        short = self.admin.post(f'/api/admin/tests/{self.tests["language"]}/shortlist', json={'value': True}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(short.status_code, 200, short.json)
+        pools = self.admin.post(f'/api/admin/drives/{self.drive}/gd/pools', json={'poolSize': 7}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(pools.status_code, 200, pools.json)
+        self.assertEqual(pools.json['gd']['source'], 'language')
+        self.assertIn('lang-gd', pools.json['gd']['candidates'])
+        evaluator = self.admin.post(f'/api/admin/drives/{self.drive}/gd/evaluator', json={'poolIndex': 0, 'evaluatorName': 'Test Evaluator'}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(evaluator.status_code, 200, evaluator.json)
+        score = self.admin.post(f'/api/admin/drives/{self.drive}/gd/score', json={'studentKey': 'lang-gd', 'field': 'initiative', 'score': 4}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(score.status_code, 200, score.json)
+        cleared = self.admin.post(f'/api/admin/drives/{self.drive}/gd/clear', json={'confirm': True}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(cleared.status_code, 200, cleared.json)
+        drive = next(d for d in self.state()['state']['drives'] if d['id'] == self.drive)
+        self.assertNotIn('gd', drive)
 
     def test_security_and_no_question_leakage(self):
         guest = self.app.test_client()

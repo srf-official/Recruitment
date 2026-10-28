@@ -289,6 +289,29 @@ def create_app(settings=None):
             public['questions'], public['attempts'] = [], []
         return {'test': public, 'serverNow': now_ms()}
 
+    def aptitude_identity(tx, drive_id, student_id):
+        key = student_key(student_id)
+        aptitude_tests = [s for s in tx.state['sessions'] if s['driveId'] == drive_id and s['type'] == 'aptitude']
+        for aptitude in aptitude_tests:
+            for candidate in tx.all_attempts(aptitude['id']):
+                if student_key(candidate['studentId']) == key:
+                    return candidate
+        return None
+
+    @app.post('/api/candidate/<test_id>/identity')
+    def candidate_identity(test_id):
+        data = request.get_json()
+        require(isinstance(data, dict), 'Invalid candidate details.')
+        student = clean_text(data.get('studentId'), 60, 'student ID')
+        require(bool(student), 'Student ID is required.')
+        with store.transaction() as tx:
+            test = test_required(tx, test_id)
+            require(test['type'] in {'language', 'prompt'}, 'Enter your name and student ID for Aptitude.')
+            require(not test.get('closedAt'), 'This test has ended.')
+            candidate = aptitude_identity(tx, test['driveId'], student)
+            require(candidate is not None, 'Student ID not found. Please enter the correct student ID used for Aptitude.')
+            return jsonify(name=candidate['name'], studentId=candidate['studentId'])
+
     @app.get('/api/candidate/<test_id>')
     def get_candidate(test_id):
         with store.transaction() as tx:
@@ -301,10 +324,17 @@ def create_app(settings=None):
     def start_candidate(test_id):
         data = request.get_json()
         require(isinstance(data, dict), 'Invalid candidate details.')
-        name, student = clean_text(data.get('name'), 100, 'name'), clean_text(data.get('studentId'), 60, 'student ID')
-        require(name and student, 'Name and student ID are required.')
+        student = clean_text(data.get('studentId'), 60, 'student ID')
+        require(bool(student), 'Student ID is required.')
         with store.transaction() as tx:
             test = test_required(tx, test_id)
+            if test['type'] == 'aptitude':
+                name = clean_text(data.get('name'), 100, 'name')
+                require(bool(name), 'Name is required.')
+            else:
+                identity = aptitude_identity(tx, test['driveId'], student)
+                require(identity is not None, 'Student ID not found. Please enter the correct student ID used for Aptitude.')
+                name, student = identity['name'], identity['studentId']
             tx.expire(test_id)
             require(not test.get('closedAt'), 'This test has ended.')
             if request.cookies.get('attempt_' + test_id):
@@ -383,6 +413,8 @@ def create_app(settings=None):
                     continue
                 a['shortlisted'] = data.get('value', True) is True
                 changed += 1
+            if test['type'] == 'language' and data.get('value', True) is True and changed:
+                test['shortlistAppliedAt'] = now_ms()
             return jsonify(changed=changed, skipped=skipped)
 
     @app.post('/api/admin/drives/<drive_id>/delete')
@@ -409,19 +441,21 @@ def create_app(settings=None):
             drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
             require(drive is not None, 'Drive not found.')
             require(not drive.get('finishedAt'), 'Cannot generate GD pools for a finished drive.')
-            aptitude = next((s for s in tx.state['sessions'] if s['driveId'] == drive_id and s['type'] == 'aptitude'), None)
-            require(aptitude is not None, 'Add Aptitude results before creating GD pools.')
-            tx.expire(aptitude['id'])
-            aptitude_attempts = tx.all_attempts(aptitude['id'])
+            drive_tests = [s for s in tx.state['sessions'] if s['driveId'] == drive_id]
+            language = next((s for s in drive_tests if s['type'] == 'language' and
+                             (s.get('shortlistAppliedAt') or any(a.get('shortlisted') for a in tx.all_attempts(s['id'])))), None)
+            source = language or next((s for s in drive_tests if s['type'] == 'aptitude'), None)
+            require(source is not None, 'Add Aptitude results before creating GD pools.')
+            tx.expire(source['id'])
             selected = {}
-            for candidate in aptitude_attempts:
+            for candidate in tx.all_attempts(source['id']):
                 if candidate.get('shortlisted'):
                     key = student_key(candidate['studentId'])
                     prior = selected.get(key)
                     if prior is None or candidate.get('startedAt', 0) > prior.get('startedAt', 0):
                         selected[key] = {'studentId': candidate['studentId'], 'name': candidate['name']}
             roster = sorted(selected.items(), key=lambda pair: (pair[1]['name'].casefold(), pair[1]['studentId'].casefold()))
-            require(bool(roster), 'No Aptitude-shortlisted candidates are available for GD pools.')
+            require(bool(roster), 'No shortlisted candidates are available for GD pools.')
             pool_count = max(1, len(roster) // data['poolSize'])
             while math.ceil(len(roster) / pool_count) > 10:
                 pool_count += 1
@@ -436,8 +470,20 @@ def create_app(settings=None):
                 previous_pool = next((p for p in previous_pools if p.get('name') == name and p.get('members') == members), {})
                 pools.append({'name': name, 'members': members, 'evaluatorName': previous_pool.get('evaluatorName', '')})
             previous = drive.get('gd') or {}
-            drive['gd'] = {'poolSize': data['poolSize'], 'pools': pools, 'candidates': {key: person for key, person in roster}, 'scores': {key: score for key, score in previous.get('scores', {}).items() if key in selected}, 'updatedAt': now_ms()}
+            drive['gd'] = {'poolSize': data['poolSize'], 'source': source['type'], 'pools': pools, 'candidates': {key: person for key, person in roster}, 'scores': {key: score for key, score in previous.get('scores', {}).items() if key in selected}, 'updatedAt': now_ms()}
             return jsonify(gd=drive['gd'], candidateCount=len(roster))
+
+    @app.post('/api/admin/drives/<drive_id>/gd/clear')
+    @admin
+    def clear_gd_pools(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and data.get('confirm') is True, 'Confirm clearing GD pools.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None and isinstance(drive.get('gd'), dict), 'GD pools not found.')
+            require(not drive.get('finishedAt'), 'Cannot clear GD pools for a finished drive.')
+            drive.pop('gd')
+            return jsonify(cleared=True)
 
     @app.post('/api/admin/drives/<drive_id>/gd/evaluator')
     @admin
