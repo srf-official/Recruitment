@@ -23,7 +23,7 @@ from werkzeug.security import check_password_hash
 from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
-from exports import excel, filename, results_rows, words
+from exports import excel, final_excel, filename, results_rows, words
 from store import Store, attempts, login_limits, now_ms
 
 
@@ -280,7 +280,7 @@ def create_app(settings=None):
         if attempt is not None:
             signer = lambda qid, i: matching_token(test['id'], attempt['id'], qid, i)
             public['questions'] = public_questions(test['questions'], signer)
-            candidate = {k: copy.deepcopy(v) for k, v in attempt.items() if k not in {'manualMarks', 'shortlisted'}}
+            candidate = {k: copy.deepcopy(v) for k, v in attempt.items() if k not in {'manualMarks', 'shortlisted', 'promptScore'}}
             for q in test['questions']:
                 if q['type'] == 'matching' and q['id'] in candidate['responses']:
                     candidate['responses'][q['id']] = [None if i is None else signer(q['id'], i) for i in candidate['responses'][q['id']]]
@@ -485,6 +485,123 @@ def create_app(settings=None):
             score['total'] = round(sum(score.get(name, 0) for name in ('initiative', 'content', 'communication', 'bodyLanguage')), 2)
             drive['gd']['updatedAt'] = now_ms()
             return jsonify(score=score, serverNow=now_ms())
+
+    @app.post('/api/admin/tests/<test_id>/prompt-score')
+    @admin
+    def prompt_score(test_id):
+        data = request.get_json()
+        require(isinstance(data, dict), 'Invalid score request.')
+        value = data.get('score')
+        require(value is None or (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 10),
+                'Prompt Engineering scores must be from 0 to 10.')
+        with store.transaction() as tx:
+            test = test_required(tx, test_id)
+            require(test['type'] == 'prompt', 'This is not a Prompt Engineering test.')
+            attempt = next((a for a in tx.all_attempts(test_id) if a['id'] == data.get('attemptId')), None)
+            require(attempt is not None and attempt.get('submittedAt'), 'Score only submitted Prompt Engineering responses.')
+            attempt['promptScore'] = None if value is None else round(float(value), 2)
+            return jsonify(promptScore=attempt['promptScore'], serverNow=now_ms())
+
+    def final_score_rows(tx, drive_id):
+        drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+        require(drive is not None, 'Drive not found.')
+        candidates = {}
+        for key, member in (drive.get('gd', {}).get('candidates', {}) or {}).items():
+            scores = drive.get('gd', {}).get('scores', {}).get(key, {})
+            candidates[key] = {'studentKey': key, 'name': member['name'], 'studentId': member['studentId'],
+                               'aptitudeScore': None, 'aptitudeShortlisted': False,
+                               'gdScore': scores.get('total'), 'gdRecommended': scores.get('shortlisted') is True,
+                               'languageScore': None, 'promptScore': None,
+                               'interviewShortlisted': False, 'outcome': 'none',
+                               '_latest': {}}
+        decisions = drive.get('finalDecisions', {})
+        for test in (s for s in tx.state['sessions'] if s['driveId'] == drive_id):
+            for attempt in tx.all_attempts(test['id']):
+                key = student_key(attempt['studentId'])
+                row = candidates.setdefault(key, {'studentKey': key, 'name': attempt['name'], 'studentId': attempt['studentId'],
+                            'aptitudeScore': None, 'aptitudeShortlisted': False, 'gdScore': None, 'gdRecommended': False,
+                            'languageScore': None, 'promptScore': None, 'interviewShortlisted': False, 'outcome': 'none', '_latest': {}})
+                if attempt.get('startedAt', 0) >= row.get('_latest_name', -1):
+                    row['name'], row['studentId'], row['_latest_name'] = attempt['name'], attempt['studentId'], attempt.get('startedAt', 0)
+                if test['type'] not in {'aptitude', 'language', 'prompt'}:
+                    continue
+                previous = row['_latest'].get(test['type'])
+                stamp = (attempt.get('startedAt', 0), attempt['id'])
+                if previous and stamp <= previous[0]:
+                    continue
+                row['_latest'][test['type']] = (stamp, attempt)
+                if test['type'] == 'aptitude':
+                    row['aptitudeScore'] = grade(test['questions'], attempt)['total'] if attempt.get('submittedAt') else None
+                    row['aptitudeShortlisted'] = attempt.get('shortlisted') is True
+                elif test['type'] == 'language':
+                    row['languageScore'] = grade(test['questions'], attempt)['total'] if attempt.get('submittedAt') else None
+                else:
+                    row['promptScore'] = attempt.get('promptScore')
+        for key, row in candidates.items():
+            decision = decisions.get(key, {})
+            row['interviewShortlisted'] = decision.get('interviewShortlisted') is True
+            row['outcome'] = decision.get('outcome') or 'none'
+            row.pop('_latest', None)
+            row.pop('_latest_name', None)
+        return sorted(candidates.values(), key=lambda r: (r['name'].casefold(), r['studentId'].casefold()))
+
+    @app.post('/api/admin/drives/<drive_id>/final-shortlist')
+    @admin
+    def final_shortlist(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and isinstance(data.get('studentIds'), list) and len(data['studentIds']) <= 2000,
+                'Invalid shortlist request.')
+        value = data.get('value', True)
+        require(type(value) is bool, 'Shortlisting must be true or false.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            rows = {r['studentKey']: r for r in final_score_rows(tx, drive_id)}
+            changed = 0
+            for raw in data['studentIds']:
+                student = clean_text(raw, 60, 'student ID')
+                key = student_key(student)
+                require(key in rows, 'A selected candidate is not in this drive.')
+                decision = drive.setdefault('finalDecisions', {}).setdefault(key, {})
+                if decision.get('interviewShortlisted') is not value:
+                    decision['interviewShortlisted'] = value
+                    changed += 1
+            return jsonify(changed=changed, serverNow=now_ms())
+
+    @app.post('/api/admin/drives/<drive_id>/candidate-decision')
+    @admin
+    def candidate_decision(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict), 'Invalid decision request.')
+        student = clean_text(data.get('studentId'), 60, 'student ID')
+        outcome = data.get('outcome')
+        require(outcome in {'none', 'selected', 'on-hold', 'rejected'}, 'Choose a valid candidate status.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            rows = {r['studentKey'] for r in final_score_rows(tx, drive_id)}
+            key = student_key(student)
+            require(key in rows, 'Candidate is not in this drive.')
+            decision = drive.setdefault('finalDecisions', {}).setdefault(key, {})
+            decision['outcome'] = None if outcome == 'none' else outcome
+            return jsonify(outcome=outcome, serverNow=now_ms())
+
+    @app.post('/api/admin/drives/<drive_id>/final/export')
+    @admin
+    def export_final_scores(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and isinstance(data.get('studentIds'), list) and len(data['studentIds']) <= 2000,
+                'Invalid export request.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            selected = {student_key(clean_text(value, 60, 'student ID')) for value in data['studentIds']}
+            rows = [row for row in final_score_rows(tx, drive_id) if row['studentKey'] in selected]
+            require(rows, 'No candidates match the current filters.')
+            payload = final_excel(drive, rows)
+            name = filename(drive['name'] + '_final_scores') + '.xlsx'
+        return send_file(io.BytesIO(payload), as_attachment=True, download_name=name,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.post('/api/admin/tests/<test_id>/marks')
     @admin

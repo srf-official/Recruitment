@@ -47,6 +47,8 @@ def update_configuration(tx, incoming):
         item["questionSets"] = {kind: questions_validated(qs, kind) for kind, qs in sets.items()}
         if old and isinstance(old.get("gd"), dict):
             item["gd"] = copy.deepcopy(old["gd"])
+        if old and isinstance(old.get("finalDecisions"), dict):
+            item["finalDecisions"] = copy.deepcopy(old["finalDecisions"])
         output_drives.append(item)
     require(set(old_drives) <= drive_ids, "Existing drives cannot be deleted.")
     output_tests, test_ids, combinations = [], set(), set()
