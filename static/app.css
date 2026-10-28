@@ -23,3 +23,41 @@ dialog.candidate-confirm{width:min(620px,calc(100vw - 32px));overflow:hidden}dia
 /* Drive overview, pool preview, and reviewer controls */
 .drive-actions{margin-top:22px;padding-top:18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;align-items:center;gap:12px;flex-wrap:wrap}.drive-actions button{min-width:124px;border-radius:9px}.drive-actions .drive-action-end{background:#fff7e8;color:#8b5a13;border-color:#ead6ab}.drive-actions .drive-action-delete{background:#fff0ed;color:var(--red);border-color:#efd0ca}.overview-section{margin:28px 0 38px}.overview-section-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}.overview-section-heading h2{font-size:18px;margin:0 0 3px}.overview-section-heading p{margin:0}.overview-drive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px}.overview-drive-card{display:block;width:100%;padding:20px;text-align:left;background:white;border:1px solid var(--line);border-radius:12px;box-shadow:0 3px 14px #153f2c08}.overview-drive-card:hover{border-color:#a4c8b8;box-shadow:0 7px 20px #153f2c12}.overview-card-head{display:flex;align-items:center;gap:12px;padding-bottom:17px;border-bottom:1px solid var(--line)}.overview-card-head>div{flex:1;min-width:0}.overview-card-head strong{display:block;font-size:15px}.overview-card-head small{display:block;color:var(--muted);margin-top:3px}.overview-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 20px;padding:17px 0}.overview-metrics>div{display:flex;align-items:center;gap:9px}.overview-metrics strong{font-size:21px;color:var(--green);min-width:30px}.overview-metrics span{font-size:11px;color:var(--muted)}.overview-open{display:block;color:var(--green);font-size:12px;font-weight:600}.pool-preview-list{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:15px}.pool-preview-row{display:flex;justify-content:space-between;gap:16px;padding:12px 15px;border-top:1px solid var(--line)}.pool-preview-row:first-child{border-top:0}.pool-preview-row span{color:var(--muted)}.gd-pool-heading{position:sticky;left:0;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 16px;background:#f7faf7;border-bottom:1px solid var(--line);min-width:850px}.gd-pool-heading h3{padding:0;border:0;background:transparent}.gd-pool-heading .evaluator-label{font-size:11px;color:var(--muted);margin:5px 0 0}.gd-evaluator-controls{display:flex;align-items:center;gap:8px}.gd-evaluator-controls input{width:min(250px,28vw);padding:8px 10px}.gd-evaluator-controls input:disabled{background:#f0f3f1;color:#576661}.gd-pool .gd-score:disabled{background:#eef1ef;color:#7b8580;opacity:.75}.gd-pool td:last-child{min-width:125px}.gd-pool .shortlist-check{white-space:nowrap}.gd-pool .shortlist-check input{accent-color:var(--green)}@media(max-width:700px){.overview-section-heading{align-items:flex-start}.overview-drive-grid{grid-template-columns:1fr}.overview-card-head{flex-wrap:wrap}.gd-pool-heading{align-items:flex-start;flex-direction:column;min-width:700px}.gd-evaluator-controls{width:100%}.gd-evaluator-controls input{width:100%}.drive-actions{justify-content:stretch}.drive-actions button{flex:1}}
 
+
+/* Approved Overview page visual treatment. Scoped so other workspace pages are unchanged. */
+.shell.overview-shell .workspace{background:#f3f8fc}
+.shell.overview-shell aside{background:#fff;color:#1e3d55;border-right:1px solid #dce7ef}
+.shell.overview-shell .navlabel{color:#8294a4}
+.shell.overview-shell .nav{color:#587087}
+.shell.overview-shell .nav.active{background:#e3f5f3;color:#078b87}
+.shell.overview-shell .aside-foot{border-color:#dce7ef}
+.shell.overview-shell .topbar{border-color:#dce7ef}
+.shell.overview-shell .breadcrumb b{color:#1d3e57}
+.shell.overview-shell .main{max-width:none}
+.shell.overview-shell .eyebrow{color:#688198}
+.shell.overview-shell .heading h1{color:#183c55}
+.overview-section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.overview-section-heading h2{font-size:20px;color:#193e56;margin:0 0 4px}
+.overview-section-heading p{color:#70869a;margin:0}
+.overview-drive-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:18px;align-items:stretch}
+.overview-drive-card{display:flex;flex-direction:column;min-height:390px;padding:18px;background:linear-gradient(150deg,#fff 0%,#f4fbfc 100%);border:1px solid #d8e8ed;border-radius:14px;box-shadow:0 5px 18px #284e6410;transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.overview-drive-card:hover{border-color:#a8d7d5;box-shadow:0 9px 22px #284e6417;transform:translateY(-2px)}
+.overview-card-head{gap:10px;padding-bottom:14px;border-color:#dce9ee}
+.overview-card-head .avatar{width:38px;height:38px;flex:0 0 38px;background:#e0f5f3;color:#078b87}
+.overview-card-head>div{min-width:0}
+.overview-card-head strong{font-size:14px;line-height:1.35;color:#1d3f57}
+.overview-card-head small{font-size:11px;color:#73899b}
+.overview-card-head .chip{margin-left:auto}
+.overview-metrics{display:flex;flex:1;flex-direction:column;gap:0;padding:4px 0}
+.overview-metric-row{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:12px;min-height:58px;padding:7px 2px;border-bottom:1px solid #e3edf1}
+.overview-metric-row:last-child{border-bottom:0}
+.overview-metric-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:50%;background:#e5f5f4;color:#078b87;font-size:16px;font-weight:650}
+.overview-metric-copy{display:flex;align-items:baseline;gap:10px;min-width:0}
+.overview-metric-copy strong{min-width:25px;color:#078b87;font-size:22px;line-height:1;font-weight:750}
+.overview-metric-copy span{font-size:11px;line-height:1.35;color:#637d91}
+.overview-open{margin-top:auto;padding-top:9px;color:#078b87;font-size:12px;font-weight:650}
+.shell.overview-shell .chip.status-live{background:#dff4ef;color:#087f73}
+.shell.overview-shell .chip.status-finished{background:#edf2f7;color:#60778b}
+.shell.overview-shell .primary{background:#078b87;border-color:#078b87}
+.shell.overview-shell .empty{background:#fff;border-color:#d8e8ed}
+@media(max-width:700px){.overview-section-heading{align-items:flex-start}.overview-drive-grid{grid-template-columns:1fr}.overview-drive-card{min-height:0}.overview-card-head{flex-wrap:nowrap}.overview-metric-copy{gap:8px}}
