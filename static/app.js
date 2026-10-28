@@ -141,7 +141,7 @@ function renderCandidate() { let { s, a } = currentQuiz(); if (!s) {
     app.innerHTML = candidateHeader(s, null) + '<div class="empty"><h1>Questions are not ready yet.</h1><p>Ask the recruitment team to configure questions and generate a new test link.</p><button onclick="goAdmin(\'question\')">Administrator</button></div>';
     return;
 } if (!a) {
-    app.innerHTML = candidateHeader(s, null) + `<main class="candidate-main"><section class="entry card"><div class="card-body"><span class="chip">${typeInfo(s.type).name}</span><h1>Ready to begin?</h1><p>${esc(s.name)}</p><div class="notice">${s.questionCount || qs.length} questions · ${durationMinutes(s)} minutes from your own start. The administrator can end the test at any time. ${s.type === 'prompt' ? 'Your response is evaluated separately.' : 'Unanswered questions score 0.'}</div><form id="entryForm">${s.type === 'aptitude' ? '<div class="field"><label for="candidateName">Full name</label><input id="candidateName" required maxlength="100"></div>' : ''}<div class="field"><label for="studentId">Student ID</label><input id="studentId" required maxlength="60" ${s.type !== 'aptitude' ? 'oninput="clearCandidateIdentity()" onblur="lookupCandidateIdentity()"' : ''}></div>${s.type !== 'aptitude' ? '<div class="field"><label for="candidateName">Full name from Aptitude</label><input id="candidateName" readonly placeholder="Enter your Student ID above"><small id="candidateIdentityMessage" role="status"></small></div>' : ''}<button class="primary" type="submit">Start test →</button></form></div></section></main>`;
+    app.innerHTML = candidateHeader(s, null) + `<main class="candidate-main"><section class="entry card"><div class="card-body"><span class="chip">${typeInfo(s.type).name}</span><h1>Ready to begin?</h1><p>${esc(s.name)}</p><div class="notice">${s.questionCount || qs.length} questions · ${durationMinutes(s)} minutes from your own start. The administrator can end the test at any time. ${s.type === 'prompt' ? 'Your response is evaluated separately.' : 'Unanswered questions score 0.'}</div><form id="entryForm">${s.type === 'aptitude' ? '<div class="field"><label for="candidateName">Full name</label><input id="candidateName" required maxlength="100"></div>' : ''}<div class="field"><label for="studentId">Student ID</label><input id="studentId" required maxlength="60"></div><button class="primary" type="submit">Start test →</button></form></div></section></main>`;
     document.querySelector('#entryForm').onsubmit = startCandidate;
     return;
 } quizIndex = Math.min(quizIndex, qs.length - 1); let q = qs[quizIndex]; app.innerHTML = candidateHeader(s, a) + `<main class="candidate-main"><div class="row between" style="margin-bottom:20px"><div><h1 style="font-size:24px">${typeInfo(s.type).name}</h1><p class="sub">${esc(s.name)}</p></div><div>${esc(a.name)} · ${esc(a.studentId)}</div></div><div class="quiz-layout"><section class="card"><div class="card-head"><h2>Question ${quizIndex + 1} of ${qs.length}</h2><span class="chip">${FORMATS[q.type]}</span></div><div class="card-body"><article class="question-item" style="margin:0">${questionContext(q)}<h3>${esc(q.text)}</h3>${s.type === 'prompt' ? '' : `<p class="sub">Correct +${q.correctScore} · Wrong ${q.wrongScore} · Unanswered 0${q.type === 'text' ? ' · Manually reviewed' : ''}</p>`}${candidateQuestion(q, a.responses?.[q.id])}</article><div class="row between" style="margin-top:20px"><button ${quizIndex === 0 ? 'disabled' : ''} onclick="quizIndex--;render()">← Previous</button><button ${quizIndex === qs.length - 1 ? 'disabled' : ''} onclick="quizIndex++;render()">Next →</button></div></div></section><section class="card quiz-side"><div class="card-body"><b>Question navigator</b><p class="sub" style="margin-top:8px">${qs.filter(q => answerPresent(q, a.responses?.[q.id])).length} of ${qs.length} answered</p><div class="quiz-nav">${qs.map((x, i) => `<button class="${i === quizIndex ? 'current' : answerPresent(x, a.responses?.[x.id]) ? 'answered' : ''}" onclick="quizIndex=${i};render()">${i + 1}</button>`).join('')}</div><button class="primary" style="width:100%;margin-top:20px" onclick="confirmSubmit()">Submit test</button></div></section></div></main>`; }
@@ -336,7 +336,7 @@ function scoreDistribution(test) {
     const scores = test.attempts.filter(a => a.submittedAt).map(a => gradeAttempt(test, a).total);
     const counts = [scores.filter(n => n < thresholds[0]).length, scores.filter(n => n >= thresholds[0] && n <= thresholds[1]).length, scores.filter(n => n > thresholds[1]).length];
     const percents = counts.map(n => scores.length ? Math.round(100 * n / scores.length) : 0);
-    return `<div class="score-distribution-title">Score distribution · ${scores.length} submitted</div><div class="score-distribution-bar" role="img" aria-label="Score distribution: ${labels.map((label, i) => label + ': ' + percents[i] + '%').join(', ')}">${percents.map((pct, i) => `<span class="score-segment score-segment-${i}" style="width:${pct}%"></span>`).join('')}</div><div class="score-distribution-labels">${labels.map((label, i) => `<span><b>${label}</b><small>${percents[i]}% · ${counts[i]}</small></span>`).join('')}</div>`;
+    return `<div class="score-distribution-title">Score distribution · ${scores.length} submitted</div><div class="score-distribution-bar" role="img" aria-label="Score distribution: ${labels.map((label, i) => label + ': ' + percents[i] + '% (' + counts[i] + ')').join(', ')}">${percents.map((pct, i) => `<span class="score-segment score-segment-${i}" style="width:${pct}%" title="${labels[i]}: ${pct}% (${counts[i]})"><b>${pct ? pct + '%' : ''}</b></span>`).join('')}</div><div class="score-distribution-labels">${labels.map((label, i) => `<span><i class="score-legend-swatch score-segment-${i}"></i><b>${label}</b><small>${percents[i]}% · ${counts[i]}</small></span>`).join('')}</div>`;
 }
 function updateResponseTable() {
  let test=state.sessions.find(x=>x.id===responseSession), rows=responseRows(test), error=filterValidation();
@@ -497,29 +497,16 @@ async function copyLink(id) { try {
 catch {
     toast('Select the link and copy it manually.');
 } }
-function clearCandidateIdentity() {
-    const name = document.querySelector('#candidateName'), message = document.querySelector('#candidateIdentityMessage');
-    if (name) name.value = '';
-    if (message) message.textContent = '';
-}
 async function lookupCandidateIdentity() {
-    const s = state.sessions[0], input = document.querySelector('#studentId'), name = document.querySelector('#candidateName'), message = document.querySelector('#candidateIdentityMessage');
+    const s = state.sessions[0], input = document.querySelector('#studentId');
     if (!s || s.type === 'aptitude' || !input?.value.trim()) return null;
     const requestedId = input.value.trim();
     try {
         const result = await api('/api/candidate/' + s.id + '/identity', 'POST', {studentId: requestedId});
         if (input.value.trim() !== requestedId) return null;
-        name.value = result.name;
         input.value = result.studentId;
-        if (message) message.textContent = 'Student ID verified against Aptitude.';
         return result;
-    } catch (e) {
-        if (input.value.trim() === requestedId) {
-            name.value = '';
-            if (message) message.textContent = e.message;
-        }
-        return null;
-    }
+    } catch (e) { return null; }
 }
 async function startCandidate(event) {
     event.preventDefault();
