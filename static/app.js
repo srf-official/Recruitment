@@ -232,18 +232,43 @@ function gdMarkup(d) {
         return `<section class="gd-pool"><div class="gd-pool-heading"><div><h3>${esc(pool.name)} <small>${pool.members.length} candidates</small></h3>${evaluator ? `<p class="evaluator-label">Evaluator: <b>${esc(evaluator)}</b></p>` : '<p class="evaluator-label">Assign an evaluator before scoring this pool.</p>'}</div><div class="gd-evaluator-controls"><input class="gd-evaluator-input" id="gd-evaluator-${pi}" maxlength="100" placeholder="Evaluator name" value="${esc(evaluator)}" ${evaluator && !editing ? 'disabled' : ''}><button class="small" onclick="${evaluator && !editing ? `editGdEvaluator('${d.id}',${pi})` : `saveGdEvaluator('${d.id}',${pi})`}">${evaluator && !editing ? 'Change name' : 'Save evaluator'}</button></div></div><table><thead><tr><th>#</th><th>Name</th>${fields.map(([, label]) => `<th>${label} (5)</th>`).join('')}<th>Total (20)</th><th>Shortlisting</th></tr></thead><tbody>${pool.members.map((key, i) => {
             const member = d.gd.candidates?.[key] || { name: key, studentId: key }, scores = d.gd.scores?.[key] || {};
             const keyArg = encodeURIComponent(key).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16));
-            return `<tr><td>${i + 1}</td><td>${esc(member.name)}<small>${esc(member.studentId)}</small></td>${fields.map(([field]) => `<td><input class="gd-score" type="number" min="0" max="5" step="0.5" value="${scores[field] ?? ''}" ${!evaluator ? 'disabled' : ''} aria-label="${esc(field)} score for ${esc(member.name)}" onchange="saveGdScore('${d.id}',decodeURIComponent('${keyArg}'),'${field}',this.value)"></td>`).join('')}<td class="gd-total">${scores.total ?? 0}</td><td><label class="shortlist-check"><input type="checkbox" ${scores.shortlisted ? 'checked' : ''} ${!evaluator ? 'disabled' : ''} onchange="saveGdShortlist('${d.id}',decodeURIComponent('${keyArg}'),this.checked)"> Shortlist</label></td></tr>`;
+            return `<tr><td>${i + 1}</td><td>${esc(member.name)}<small>${esc(member.studentId)}</small></td>${fields.map(([field]) => `<td><input class="gd-score" type="number" min="0" max="5" step="0.5" value="${scores[field] ?? ''}" ${!evaluator ? 'disabled' : ''} aria-label="${esc(field)} score for ${esc(member.name)}" onchange="saveGdScore('${d.id}',decodeURIComponent('${keyArg}'),'${field}',this.value,this)"></td>`).join('')}<td class="gd-total">${scores.total ?? 0}</td><td><label class="shortlist-check"><input type="checkbox" ${scores.shortlisted ? 'checked' : ''} ${!evaluator ? 'disabled' : ''} onchange="saveGdShortlist('${d.id}',decodeURIComponent('${keyArg}'),this.checked)"> Shortlist</label></td></tr>`;
         }).join('') || '<tr><td colspan="8">No Aptitude-shortlisted candidates assigned to this pool.</td></tr>'}</tbody></table></section>`;
     }).join('');
     return `<header class="results-header"><div class="row between"><div><h2>GD Evaluation · ${esc(d.name)}</h2><p class="sub">Enter each area out of 5. The total is calculated out of 20 and saved as you score.</p></div><button class="small" onclick="refreshGdScores('${d.id}')">Refresh scores</button><button class="quiet" onclick="modal.close()" aria-label="Close GD evaluations">✕</button></div></header><div class="results-scroll gd-pools">${pools}</div><footer class="results-footer"><span class="sub">Scores and evaluator names are shared across administrator sessions. Closing this window only closes it on your device.</span></footer>`;
 }
-function openGdPools(id) { let d = state.drives.find(x => x.id === id); if (!d?.gd) return toast('Generate the GD pools first.'); editingGdEvaluator = null; gdDrive = id; modal.className = 'results-dialog gd-evaluation'; modal.innerHTML = gdMarkup(d); if (!modal.open) modal.showModal(); if (gdRefreshTimer) clearInterval(gdRefreshTimer); gdRefreshTimer = setInterval(() => { if (modal.open) refreshGdScores(id, true); else { clearInterval(gdRefreshTimer); gdRefreshTimer = null; } }, 10000); }
+function openGdPools(id) { let d = state.drives.find(x => x.id === id); if (!d?.gd) return toast('Generate the GD pools first.'); stopGdRefresh(); editingGdEvaluator = null; gdDrive = id; modal.className = 'results-dialog gd-evaluation'; modal.innerHTML = gdMarkup(d); if (!modal.open) modal.showModal(); gdRefreshTimer = setInterval(() => { if (modal.open && modal.classList.contains('gd-evaluation') && gdDrive === id) refreshGdScores(id, true); else stopGdRefresh(); }, 10000); }
 let gdDrive = null, gdRefreshTimer = null;
-async function refreshGdScores(id, quiet = false) { if (id !== gdDrive || document.activeElement?.classList?.contains('gd-score') || document.activeElement?.classList?.contains('gd-evaluator-input')) return; try { await reloadAdmin(); const d = state.drives.find(x => x.id === id); if (d?.gd && modal.open) modal.innerHTML = gdMarkup(d); } catch (e) { if (!quiet) handleError(e); } }
+function stopGdRefresh() { if (gdRefreshTimer) clearInterval(gdRefreshTimer); gdRefreshTimer = null; }
+async function refreshGdScores(id, quiet = false) {
+    if (id !== gdDrive || !modal.open || !modal.classList.contains('gd-evaluation') || document.activeElement?.classList?.contains('gd-score') || document.activeElement?.classList?.contains('gd-evaluator-input')) return;
+    const previousScroll = document.querySelector('.gd-evaluation .gd-pools')?.scrollTop || 0;
+    try {
+        await reloadAdmin();
+        if (id !== gdDrive || !modal.open || !modal.classList.contains('gd-evaluation')) return;
+        const d = state.drives.find(x => x.id === id);
+        if (d?.gd) { modal.innerHTML = gdMarkup(d); const scroller = document.querySelector('.gd-evaluation .gd-pools'); if (scroller) scroller.scrollTop = previousScroll; }
+    } catch (e) { if (!quiet) handleError(e); }
+}
 function editGdEvaluator(id, poolIndex) { editingGdEvaluator = `${id}:${poolIndex}`; const d = state.drives.find(x => x.id === id); if (modal.open && d?.gd) { modal.innerHTML = gdMarkup(d); document.querySelector(`#gd-evaluator-${poolIndex}`)?.focus(); } }
 async function saveGdEvaluator(id, poolIndex) { const input = document.querySelector(`#gd-evaluator-${poolIndex}`), evaluatorName = input?.value.trim(); if (!evaluatorName) return toast('Enter the evaluator name before continuing.'); try { await api('/api/admin/drives/' + id + '/gd/evaluator', 'POST', { poolIndex, evaluatorName }); editingGdEvaluator = null; await reloadAdmin(); const d = state.drives.find(x => x.id === id); if (modal.open && d?.gd) modal.innerHTML = gdMarkup(d); toast(`Evaluator saved for Pool ${poolIndex < 26 ? String.fromCharCode(65 + poolIndex) : poolIndex + 1}.`); } catch (e) { handleError(e); } }
-async function saveGdShortlist(id, key, value) { try { await api('/api/admin/drives/' + id + '/gd/score', 'POST', { studentKey: key, field: 'shortlisted', value }); await reloadAdmin(); if (modal.open) modal.innerHTML = gdMarkup(state.drives.find(d => d.id === id)); } catch (e) { handleError(e); } }
-async function saveGdScore(id, key, field, raw) { if (raw !== '' && (!Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > 5)) return toast('Enter a score from 0 to 5.'); try { await api('/api/admin/drives/' + id + '/gd/score', 'POST', { studentKey: key, field, score: raw === '' ? null : Number(raw) }); await reloadAdmin(); if (modal.open) modal.innerHTML = gdMarkup(state.drives.find(d => d.id === id)); } catch (e) { handleError(e); } }
+async function saveGdShortlist(id, key, value) {
+    try {
+        const result = await api('/api/admin/drives/' + id + '/gd/score', 'POST', { studentKey: key, field: 'shortlisted', value });
+        const drive = state.drives.find(d => d.id === id);
+        if (drive?.gd && result.score) { drive.gd.scores ||= {}; drive.gd.scores[key] = result.score; }
+    } catch (e) { handleError(e); }
+}
+async function saveGdScore(id, key, field, raw, input) {
+    if (raw !== '' && (!Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > 5)) return toast('Enter a score from 0 to 5.');
+    try {
+        const result = await api('/api/admin/drives/' + id + '/gd/score', 'POST', { studentKey: key, field, score: raw === '' ? null : Number(raw) });
+        const drive = state.drives.find(d => d.id === id);
+        if (drive?.gd && result.score) { drive.gd.scores ||= {}; drive.gd.scores[key] = result.score; }
+        const total = input?.closest('tr')?.querySelector('.gd-total');
+        if (total && result.score) total.textContent = result.score.total ?? 0;
+    } catch (e) { handleError(e); }
+}
 function questionOverview() { return heading('Question overview', 'Manage the default question sets for your recruitment drives.') + `<div class="notice">Language & Reasoning now includes both uploaded question sets. Use Update questions to review or edit in one scrollable window. Prompt Engineering is evaluated separately, without an answer key or automatic score.</div><div class="ready-grid">${TYPES.map(t => { let qs = state.questionSets[t.id]; return `<section class="card"><div class="card-body"><span class="chip">${qs.length} questions</span><h3>${t.name}</h3><p>${t.id === 'language' ? '20 Language Proficiency + 5 Data Interpretation questions' : t.description}</p>${t.id === 'prompt' ? '<div class="bank-summary">Separate evaluation</div>' : `<div class="bank-summary">${qs.filter(keyReady).length} answer keys · ${qs.filter(q => q.type === 'text').length} written responses</div>`}<button class="primary small" onclick="openQuestionManager('${t.id}')">Update questions</button></div></section>`; }).join('')}</div>`; }
 function createTest(driveId, type) { let d = state.drives.find(d => d.id === driveId); if (!d || d.finishedAt || driveTests(driveId).some(s => s.type === type))
     return; let qs = JSON.parse(JSON.stringify(driveQuestionSet(driveId, type))); let s = { id: uuid(), driveId, type, name: d.name + ' · ' + typeInfo(type).name, start: Date.now(), closedAt: null, question: qs.map(q => q.text).join('\n\n'), questions: qs, attempts: [] }; state.sessions.unshift(s); state.activeId = s.id; expandedDrive = d.id; save(); modal.close(); render(); toast('Test link generated with the drive’s current question set.'); }
@@ -694,6 +719,7 @@ function finalScoreCell(result) {
     return `${score.total}${score.pending ? `<small>${score.pending} pending · provisional</small>` : ''}`;
 }
 async function showFinalScores(driveId) {
+    stopGdRefresh();
     try {
         await reloadAdmin();
         let drive = state.drives.find(d => d.id === driveId);
