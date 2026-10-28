@@ -90,3 +90,33 @@ def words(drive, test, attempts):
             archive.writestr(name, data.getvalue())
     return stream.getvalue()
 
+
+
+def final_excel(drive, rows):
+    book = Workbook()
+    sheet = book.active
+    sheet.title = 'Final scores'
+    headers = ['Drive name', 'Candidate name', 'Student ID', 'Aptitude score', 'Shortlisted in Aptitude',
+               'GD score (20)', 'GD recommend', 'Language & Reasoning score', 'Prompt Engineering score (10)',
+               'Interview shortlisted', 'Final status']
+    sheet.append(headers)
+    for row in rows:
+        sheet.append([drive['name'], row['name'], row['studentId'], row.get('aptitudeScore'),
+                      'Yes' if row.get('aptitudeShortlisted') else 'No', row.get('gdScore'),
+                      'Yes' if row.get('gdRecommended') else 'No', row.get('languageScore'),
+                      row.get('promptScore'), 'Yes' if row.get('interviewShortlisted') else 'No',
+                      {'none': 'None', 'selected': 'Selected', 'on-hold': 'On hold', 'rejected': 'Rejected'}.get(row.get('outcome'), 'None')])
+        for cell in sheet[sheet.max_row]:
+            if isinstance(cell.value, str):
+                cell.data_type = 's'
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='038681')
+    widths = [34, 28, 20, 18, 24, 16, 18, 28, 30, 24, 18]
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[sheet.cell(1, index).column_letter].width = width
+    sheet.freeze_panes = 'A2'
+    sheet.auto_filter.ref = sheet.dimensions
+    stream = io.BytesIO()
+    book.save(stream)
+    return stream.getvalue()
