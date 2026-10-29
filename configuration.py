@@ -72,6 +72,11 @@ def update_configuration(tx, incoming):
         require((did, kind) not in combinations, "Only one link per test type is allowed in each drive.")
         combinations.add((did, kind))
         old = old_tests.get(sid)
+        available_at = s.get("availableAt", old.get("availableAt") if old else None)
+        require(available_at is None or type(available_at) is int and 0 <= available_at <= 4102444800000,
+                "Invalid test activation date and time.")
+        if old:
+            require(available_at == old.get("availableAt"), "The activation time cannot change after generating a test link.")
         qs = questions_validated(s.get("questions", []), kind)
         require(qs or (old and old.get("historicalImport")), "Add questions before generating a test link.")
         if old:
@@ -87,7 +92,7 @@ def update_configuration(tx, incoming):
         else:
             require(not by_drive[did].get("finishedAt"), "Cannot add tests to a finished drive.")
             item = {"id": sid, "driveId": did, "type": kind, "start": now_ms(), "closedAt": None,
-                    "durationMinutes": durations[kind], "questions": qs}
+                    "durationMinutes": durations[kind], "availableAt": available_at, "questions": qs}
         item["name"] = by_drive[did]["name"] + " · " + {"aptitude": "Aptitude", "language": "Language & Reasoning", "prompt": "Prompt Engineering"}[kind]
         if s.get("closedAt") or by_drive[did].get("finishedAt"):
             tx.stop(item)

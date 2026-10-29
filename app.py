@@ -188,6 +188,27 @@ def create_app(settings=None):
             update_configuration(tx, payload.get('state'))
             return jsonify(revision=tx.next_version(), state=tx.export_state(), serverNow=now_ms())
 
+    @app.post('/api/admin/drives/<drive_id>/members')
+    @admin
+    def add_drive_members(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and isinstance(data.get('members'), list), 'Provide member names.')
+        require(len(data['members']) <= 100, 'Add no more than 100 drive members.')
+        additions = [clean_text(value, 100, 'drive member') for value in data['members']]
+        require(additions and all(additions), 'Enter at least one member name.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            members = list(drive.get('members', []))
+            seen = {student_key(name) for name in members}
+            for name in additions:
+                if student_key(name) not in seen:
+                    members.append(name)
+                    seen.add(student_key(name))
+            require(len(members) <= 100, 'Add no more than 100 drive members.')
+            drive['members'] = members
+            return jsonify(members=members, serverNow=now_ms())
+
     def test_required(tx, test_id):
         test = tx.test(test_id)
         require(test is not None, 'This test link is unavailable.')
@@ -275,6 +296,7 @@ def create_app(settings=None):
 
     def candidate_payload(test, attempt=None):
         public = {k: test[k] for k in ('id', 'type', 'name', 'driveId', 'closedAt')}
+        public['availableAt'] = test.get('availableAt')
         public['durationMinutes'] = test.get('durationMinutes', DURATIONS[test['type']])
         public['questionCount'] = len(test['questions'])
         public['scoringRules'] = {'correct': test['questions'][0].get('correctScore', 1) if test['type'] != 'prompt' and test.get('questions') else 1,
@@ -324,6 +346,7 @@ def create_app(settings=None):
         require(bool(student), 'Student ID is required.')
         with store.transaction() as tx:
             test = test_required(tx, test_id)
+            require(not test.get('availableAt') or now_ms() >= test['availableAt'], 'This test has not started yet. Please return at the scheduled time.')
             require(test['type'] in {'language', 'prompt'}, 'Enter your name and student ID for Aptitude.')
             require(not test.get('closedAt'), 'This test has ended.')
             candidate = aptitude_identity(tx, test['driveId'], student)
@@ -346,6 +369,7 @@ def create_app(settings=None):
         require(bool(student), 'Student ID is required.')
         with store.transaction() as tx:
             test = test_required(tx, test_id)
+            require(not test.get('availableAt') or now_ms() >= test['availableAt'], 'This test has not started yet. Please return at the scheduled time.')
             if test['type'] == 'aptitude':
                 name = clean_text(data.get('name'), 100, 'name')
                 require(bool(name), 'Name is required.')

@@ -6,6 +6,7 @@ import time
 import unittest
 import uuid
 import zipfile
+from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -74,6 +75,68 @@ class ApplicationTests(unittest.TestCase):
     def tearDown(self):
         self.app.extensions['store'].engine.dispose()
         self.directory.cleanup()
+
+    def test_existing_drive_members_can_be_added_without_losing_evaluations(self):
+        before = self.state()['state']['drives'][0]
+        url = f'/api/admin/drives/{self.drive}/members'
+        result = self.admin.post(url, json={'members': ['Alex', 'alex', 'Sam']},
+                                 headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual(result.json['members'], ['Alex', 'Sam'])
+        after = self.state()['state']['drives'][0]
+        self.assertEqual(after.get('gd'), before.get('gd'))
+        self.assertEqual(after.get('finalDecisions'), before.get('finalDecisions'))
+        result = self.admin.post(url, json={'members': ['Taylor']},
+                                 headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(result.json['members'], ['Alex', 'Sam', 'Taylor'])
+        anonymous = self.app.test_client()
+        anonymous_csrf = anonymous.get('/api/auth/session').json['csrf']
+        self.assertEqual(anonymous.post(url, json={'members': ['Intruder']}, headers={'X-CSRF-Token': anonymous_csrf}).status_code, 401)
+
+    def test_scheduled_links_hide_questions_and_block_early_starts_for_all_tests(self):
+        current = self.state()
+        drive_id = uid()
+        available = int(time.time() * 1000) + 60000
+        current['state']['drives'].append({'id': drive_id, 'name': 'Scheduled drive'})
+        test_ids = {}
+        for kind in ('aptitude', 'language', 'prompt'):
+            test_ids[kind] = uid()
+            current['state']['sessions'].append({'id': test_ids[kind], 'driveId': drive_id,
+                'type': kind, 'questions': [question()], 'availableAt': available})
+        saved = self.put_state(current['state'], current['revision'])
+        self.assertEqual(saved.status_code, 200, saved.json)
+        clients = {}
+        for kind, tid in test_ids.items():
+            client = self.app.test_client()
+            csrf = client.get('/api/auth/session').json['csrf']
+            clients[kind] = (client, csrf)
+            with patch('app.now_ms', return_value=available - 1):
+                meta = client.get(f'/api/candidate/{tid}').json['test']
+                self.assertEqual(meta['availableAt'], available)
+                self.assertEqual(meta['questions'], [])
+                self.assertEqual(meta['attempts'], [])
+                blocked = client.post(f'/api/candidate/{tid}/start', json={'name': 'Scheduled Candidate', 'studentId': 'SCHEDULE-1'},
+                                      headers={'X-CSRF-Token': csrf})
+                self.assertEqual(blocked.status_code, 400, blocked.json)
+                self.assertIn('scheduled time', blocked.json['error'])
+                if kind != 'aptitude':
+                    identity = client.post(f'/api/candidate/{tid}/identity', json={'studentId': 'SCHEDULE-1'},
+                                           headers={'X-CSRF-Token': csrf})
+                    self.assertEqual(identity.status_code, 400)
+        for kind, tid in test_ids.items():
+            client, csrf = clients[kind]
+            with patch('app.now_ms', return_value=available):
+                result = client.post(f'/api/candidate/{tid}/start', json={'name': 'Scheduled Candidate', 'studentId': 'SCHEDULE-1'},
+                                     headers={'X-CSRF-Token': csrf})
+                self.assertEqual(result.status_code, 200, result.json)
+                attempt = result.json['test']['attempts'][0]
+                self.assertEqual(attempt['startedAt'], available)
+                self.assertEqual(attempt['deadline'], available + result.json['test']['durationMinutes'] * 60000)
+                self.assertTrue(result.json['test']['questions'])
+        current = self.state()
+        test = next(s for s in current['state']['sessions'] if s['id'] == test_ids['aptitude'])
+        test['availableAt'] = available + 1000
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 400)
 
     def put_state(self, state, revision):
         return self.admin.put('/api/admin/state', json={'state': state, 'revision': revision}, headers={'X-CSRF-Token': self.csrf})
