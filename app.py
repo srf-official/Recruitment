@@ -277,6 +277,8 @@ def create_app(settings=None):
         public = {k: test[k] for k in ('id', 'type', 'name', 'driveId', 'closedAt')}
         public['durationMinutes'] = test.get('durationMinutes', DURATIONS[test['type']])
         public['questionCount'] = len(test['questions'])
+        public['scoringRules'] = {'correct': test['questions'][0].get('correctScore', 1) if test['type'] != 'prompt' and test.get('questions') else 1,
+                                  'wrong': test['questions'][0].get('wrongScore', 0) if test['type'] != 'prompt' and test.get('questions') else 0}
         if attempt is not None:
             signer = lambda qid, i: matching_token(test['id'], attempt['id'], qid, i)
             by_id = {q['id']: q for q in test['questions']}
@@ -588,6 +590,11 @@ def create_app(settings=None):
             gd = drive.get('gd') if drive else None
             require(isinstance(gd, dict) and 0 <= data['poolIndex'] < len(gd.get('pools', [])), 'GD pool not found.')
             pool = gd['pools'][data['poolIndex']]
+            members = drive.get('members', [])
+            if members:
+                canonical = next((member for member in members if student_key(member) == student_key(name)), None)
+                require(canonical is not None, 'Choose an evaluator from this drive’s members.')
+                name = canonical
             pool['evaluatorName'] = name
             gd['updatedAt'] = now_ms()
             return jsonify(pool=pool, serverNow=now_ms())
@@ -649,7 +656,7 @@ def create_app(settings=None):
                                'aptitudeScore': None, 'aptitudeShortlisted': False,
                                'gdScore': scores.get('total'), 'gdRecommended': scores.get('shortlisted') is True,
                                'languageScore': None, 'promptScore': None,
-                               'interviewShortlisted': False, 'outcome': 'none',
+                               'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none',
                                '_latest': {}}
         decisions = drive.get('finalDecisions', {})
         for test in (s for s in tx.state['sessions'] if s['driveId'] == drive_id):
@@ -657,7 +664,7 @@ def create_app(settings=None):
                 key = student_key(attempt['studentId'])
                 row = candidates.setdefault(key, {'studentKey': key, 'name': attempt['name'], 'studentId': attempt['studentId'],
                             'aptitudeScore': None, 'aptitudeShortlisted': False, 'gdScore': None, 'gdRecommended': False,
-                            'languageScore': None, 'promptScore': None, 'interviewShortlisted': False, 'outcome': 'none', '_latest': {}})
+                            'languageScore': None, 'promptScore': None, 'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none', '_latest': {}})
                 if attempt.get('startedAt', 0) >= row.get('_latest_name', -1):
                     row['name'], row['studentId'], row['_latest_name'] = attempt['name'], attempt['studentId'], attempt.get('startedAt', 0)
                 if test['type'] not in {'aptitude', 'language', 'prompt'}:
@@ -677,6 +684,7 @@ def create_app(settings=None):
         for key, row in candidates.items():
             decision = decisions.get(key, {})
             row['interviewShortlisted'] = decision.get('interviewShortlisted') is True
+            row['interviewManual'] = decision.get('interviewManual') is True
             row['outcome'] = decision.get('outcome') or 'none'
             row['interviewRemarks'] = decision.get('interviewRemarks', '')
             row['interviewer'] = decision.get('interviewer', '')
@@ -710,13 +718,74 @@ def create_app(settings=None):
                 decision['interviewRemarks'] = ''
             return jsonify(changed=changed, serverNow=now_ms())
 
+    @app.get('/api/admin/drives/<drive_id>/candidate-responses')
+    @admin
+    def candidate_responses(drive_id):
+        student = clean_text(request.args.get('studentId', ''), 60, 'student ID')
+        require(bool(student), 'Student ID is required.')
+        key = student_key(student)
+        sections = []
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            tests = {kind: next((test for test in tx.state['sessions']
+                                 if test['driveId'] == drive_id and test['type'] == kind), None)
+                     for kind in ('aptitude', 'language', 'prompt')}
+            for kind, title in (('aptitude', 'Aptitude'), ('language', 'Language & Reasoning'), ('prompt', 'Prompt Engineering')):
+                test = tests[kind]
+                if not test:
+                    continue
+                attempts_for_test = [a for a in tx.all_attempts(test['id'])
+                                     if student_key(a.get('studentId', '')) == key]
+                if not attempts_for_test:
+                    continue
+                attempt = max(attempts_for_test, key=lambda a: a.get('startedAt', 0))
+                if kind == 'prompt':
+                    sections.append({'type': kind, 'title': title, 'submittedAt': attempt.get('submittedAt'),
+                                     'response': attempt.get('answer', ''), 'score': attempt.get('promptScore')})
+                    continue
+                result_by_id = {item['id']: item for item in grade(test['questions'], attempt)['results']}
+                order = attempt.get('questionOrder') or [q['id'] for q in test['questions']]
+                question_map = {q['id']: q for q in test['questions']}
+                ordered = [question_map[qid] for qid in order if qid in question_map]
+                ordered.extend(q for q in test['questions'] if q['id'] not in set(order))
+                questions = []
+                for q in ordered:
+                    response = attempt.get('responses', {}).get(q['id'])
+                    options = q.get('options', [])
+                    if q['type'] in {'single', 'multiple', 'boolean'}:
+                        selected = response if isinstance(response, list) else []
+                        answer = [options[i] for i in selected if type(i) is int and 0 <= i < len(options)]
+                        correct = [options[i] for i in q.get('key', []) if type(i) is int and 0 <= i < len(options)]
+                    elif q['type'] == 'ranking':
+                        selected = response if isinstance(response, list) else []
+                        answer = [options[i] for i in selected if type(i) is int and 0 <= i < len(options)]
+                        correct = [options[i] for i in q.get('key', []) if type(i) is int and 0 <= i < len(options)]
+                    elif q['type'] == 'matching':
+                        pairs = q.get('pairs', [])
+                        answer = [f"{pair.get('left', '')} → {pairs[index].get('right', '')}" for pair, index in zip(pairs, response or []) if type(index) is int and 0 <= index < len(pairs)]
+                        correct = [f"{pair.get('left', '')} → {pair.get('right', '')}" for pair in pairs]
+                    else:
+                        answer = response or ''
+                        correct = q.get('referenceAnswer') or 'No fixed answer'
+                    questions.append({'text': q.get('text', ''), 'context': q.get('context', ''),
+                                      'table': q.get('table', []), 'type': q.get('type'),
+                                      'response': answer, 'correctAnswer': correct,
+                                      'score': result_by_id.get(q['id'], {}).get('score'),
+                                      'status': result_by_id.get(q['id'], {}).get('status')})
+                sections.append({'type': kind, 'title': title, 'submittedAt': attempt.get('submittedAt'),
+                                 'score': grade(test['questions'], attempt)['total'], 'questions': questions})
+            name = next((a['name'] for test in tests.values() if test for a in tx.all_attempts(test['id'])
+                         if student_key(a.get('studentId', '')) == key), '')
+        return jsonify(name=name, studentId=student, sections=sections, serverNow=now_ms())
+
     @app.post('/api/admin/drives/<drive_id>/candidate-decision')
     @admin
     def candidate_decision(drive_id):
         data = request.get_json()
         require(isinstance(data, dict), 'Invalid decision request.')
         student = clean_text(data.get('studentId'), 60, 'student ID')
-        require(any(field in data for field in ('outcome', 'interviewShortlisted', 'interviewRemarks', 'interviewer')),
+        require(any(field in data for field in ('outcome', 'interviewShortlisted', 'interviewRemarks', 'interviewManual', 'interviewer')),
                 'Provide a candidate decision.')
         if 'outcome' in data:
             require(data['outcome'] in {'none', 'selected', 'on-hold', 'rejected'}, 'Choose a valid candidate status.')
@@ -732,11 +801,19 @@ def create_app(settings=None):
             if 'outcome' in data:
                 decision['outcome'] = None if data['outcome'] == 'none' else data['outcome']
             if 'interviewer' in data:
-                decision['interviewer'] = clean_text(data['interviewer'], 100, 'interviewer name')
+                interviewer = clean_text(data['interviewer'], 100, 'interviewer name')
+                members = drive.get('members', [])
+                if interviewer and members:
+                    canonical = next((member for member in members if student_key(member) == student_key(interviewer)), None)
+                    require(canonical is not None, 'Choose an interviewer from this drive’s members.')
+                    interviewer = canonical
+                if decision.get('interviewManual') and decision.get('interviewShortlisted'):
+                    require(bool(decision.get('interviewRemarks', '').strip()), 'Add remarks before assigning an interviewer to a manually shortlisted candidate.')
+                decision['interviewer'] = interviewer
             if 'interviewShortlisted' in data or 'interviewRemarks' in data:
                 value = data.get('interviewShortlisted', decision.get('interviewShortlisted', False))
                 remarks = clean_text(data.get('interviewRemarks', decision.get('interviewRemarks', '')), 2000, 'interview remarks')
-                manual = value and ('interviewShortlisted' in data or decision.get('interviewManual'))
+                manual = value and (data.get('interviewManual') is True or ('interviewShortlisted' in data and data.get('interviewManual') is not False) or decision.get('interviewManual') and data.get('interviewManual') is not False)
                 require(not manual or bool(remarks), 'Remarks are required when manually shortlisting a candidate for interview.')
                 decision.update(interviewShortlisted=value, interviewManual=bool(manual), interviewRemarks=remarks if value else '')
             return jsonify(outcome=decision.get('outcome') or 'none', decision=decision, serverNow=now_ms())

@@ -46,8 +46,11 @@ def update_configuration(tx, incoming):
         old = old_drives.get(did)
         if old and old.get("finishedAt"):
             require(name == old["name"] and d.get("finishedAt"), "Finished drives cannot be reopened.")
+        members = d.get("members", old.get("members", []) if old else [])
+        require(isinstance(members, list) and len(members) <= 100, "Add no more than 100 drive members.")
+        members = list(dict.fromkeys(clean_text(value, 100, "drive member") for value in members if clean_text(value, 100, "drive member")))
         item = {"id": did, "name": name, "createdAt": old["createdAt"] if old else now_ms(),
-                "finishedAt": old.get("finishedAt") if old else None}
+                "finishedAt": old.get("finishedAt") if old else None, "members": members}
         if d.get("finishedAt") and not item["finishedAt"]:
             item["finishedAt"] = now_ms()
         sets = d.get("questionSets", {})
