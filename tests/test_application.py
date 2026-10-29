@@ -54,7 +54,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.json)
         if self._testMethodName != 'test_matching_key_is_not_exposed_and_choices_are_attempt_bound':
             candidate, candidate_csrf, _ = self.candidate(student='GD-SEED')
-            submitted = self.answer(candidate, candidate_csrf, responses={'q1': [0]}, submit=True)
+            submitted = self.answer(candidate, candidate_csrf, responses={}, submit=True)
             self.assertEqual(submitted.status_code, 200, submitted.json)
             shortlisted = self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={'value': True},
                                           headers={'X-CSRF-Token': self.csrf})
