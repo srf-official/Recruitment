@@ -46,6 +46,7 @@ class ApplicationTests(unittest.TestCase):
         self.csrf = result.json['csrf']
         self.drive = uid()
         self.tests = {kind: uid() for kind in ('aptitude', 'language', 'prompt')}
+        self.choice_orders = {}
         state = {'drives': [{'id': self.drive, 'name': 'Synthetic college 2026', 'finishedAt': None}],
                  'questionSets': {'aptitude': [question()], 'language': [question('text')], 'prompt': [question('text')]},
                  'sessions': [{'id': self.tests['aptitude'], 'driveId': self.drive, 'type': 'aptitude',
@@ -88,10 +89,22 @@ class ApplicationTests(unittest.TestCase):
         tid = self.tests[kind]
         response = client.post(f'/api/candidate/{tid}/start', json={'name': name, 'studentId': student}, headers={'X-CSRF-Token': csrf})
         self.assertEqual(response.status_code, 200, response.json)
-        return client, csrf, response.json['test']['attempts'][0]
+        candidate_attempt = response.json['test']['attempts'][0]
+        with self.app.extensions['store'].transaction() as tx:
+            stored_attempt = next(a for a in tx.all_attempts(tid) if a['id'] == candidate_attempt['id'])
+            self.choice_orders[id(client)] = copy.deepcopy(stored_attempt.get('optionOrder', {}))
+        return client, csrf, candidate_attempt
 
     def answer(self, client, csrf, kind='aptitude', responses=None, sequence=1, submit=False):
-        return client.post(f'/api/candidate/{self.tests[kind]}/answer', json={'responses': responses if responses is not None else {'q1': [1]}, 'sequence': sequence, 'submit': submit}, headers={'X-CSRF-Token': csrf})
+        payload_responses = copy.deepcopy(responses if responses is not None else {'q1': [1]})
+        if kind == 'aptitude':
+            option_orders = self.choice_orders.get(id(client), {})
+            for question_id, selected in list(payload_responses.items()):
+                order = option_orders.get(question_id)
+                if (order and isinstance(selected, list)
+                        and all(isinstance(index, int) and not isinstance(index, bool) for index in selected)):
+                    payload_responses[question_id] = [order.index(index) for index in selected]
+        return client.post(f'/api/candidate/{self.tests[kind]}/answer', json={'responses': payload_responses, 'sequence': sequence, 'submit': submit}, headers={'X-CSRF-Token': csrf})
 
     def state(self):
         return self.admin.get('/api/admin/state').json
