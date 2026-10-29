@@ -1177,4 +1177,3 @@ async function flushFinalInterviewDrafts() {
     if(entries.length)rerenderFinalTable();
     return true;
 }
-

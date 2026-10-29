@@ -962,4 +962,3 @@ def create_app(settings=None):
 
 application = create_app()
 
-

@@ -100,4 +100,3 @@ def update_configuration(tx, incoming):
     require(set(old_tests) <= test_ids, "Existing test links cannot be deleted.")
     tx.state.update(drives=output_drives, sessions=output_tests, questionSets=defaults, durations=durations)
 
-
