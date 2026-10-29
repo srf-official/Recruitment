@@ -724,60 +724,99 @@ def create_app(settings=None):
         student = clean_text(request.args.get('studentId', ''), 60, 'student ID')
         require(bool(student), 'Student ID is required.')
         key = student_key(student)
-        sections = []
         with store.transaction() as tx:
             drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
             require(drive is not None, 'Drive not found.')
             tests = {kind: next((test for test in tx.state['sessions']
                                  if test['driveId'] == drive_id and test['type'] == kind), None)
                      for kind in ('aptitude', 'language', 'prompt')}
-            for kind, title in (('aptitude', 'Aptitude'), ('language', 'Language & Reasoning'), ('prompt', 'Prompt Engineering')):
+            titles = {'aptitude': 'Aptitude', 'gd': 'Group Discussion (GD)',
+                      'language': 'Language & Reasoning', 'prompt': 'Prompt Engineering'}
+            maximums = {'aptitude': 30, 'gd': 20, 'language': 25, 'prompt': 10}
+            sections = []
+            names = []
+            for kind in ('aptitude', 'gd', 'language', 'prompt'):
+                if kind == 'gd':
+                    gd = drive.get('gd') or {}
+                    person = (gd.get('candidates') or {}).get(key)
+                    if person:
+                        score_data = (gd.get('scores') or {}).get(key) or {}
+                        pool = next((p for p in gd.get('pools', []) if key in p.get('members', [])), {})
+                        sections.append({
+                            'type': 'gd', 'title': titles[kind], 'maxScore': maximums[kind],
+                            'hasAttempt': True, 'score': score_data.get('total'),
+                            'evaluator': pool.get('evaluatorName', ''),
+                            'recommend': bool(score_data.get('shortlisted')),
+                            'criteria': [
+                                {'label': 'Initiative', 'score': score_data.get('initiative')},
+                                {'label': 'Content', 'score': score_data.get('content')},
+                                {'label': 'Communication', 'score': score_data.get('communication')},
+                                {'label': 'Body Language', 'score': score_data.get('bodyLanguage')}
+                            ]
+                        })
+                        names.append(person.get('name', ''))
+                    else:
+                        sections.append({'type': kind, 'title': titles[kind], 'maxScore': maximums[kind], 'hasAttempt': False})
+                    continue
                 test = tests[kind]
                 if not test:
+                    sections.append({'type': kind, 'title': titles[kind], 'maxScore': maximums[kind], 'hasAttempt': False})
                     continue
-                attempts_for_test = [a for a in tx.all_attempts(test['id'])
-                                     if student_key(a.get('studentId', '')) == key]
-                if not attempts_for_test:
+                attempts = [a for a in tx.all_attempts(test['id'])
+                            if student_key(a.get('studentId', '')) == key]
+                if not attempts:
+                    sections.append({'type': kind, 'title': titles[kind], 'maxScore': maximums[kind], 'hasAttempt': False})
                     continue
-                attempt = max(attempts_for_test, key=lambda a: a.get('startedAt', 0))
+                attempt = max(attempts, key=lambda a: a.get('startedAt', 0))
+                names.append(attempt.get('name', ''))
                 if kind == 'prompt':
-                    sections.append({'type': kind, 'title': title, 'submittedAt': attempt.get('submittedAt'),
+                    sections.append({'type': kind, 'title': titles[kind], 'maxScore': maximums[kind],
+                                     'hasAttempt': True, 'submittedAt': attempt.get('submittedAt'),
                                      'response': attempt.get('answer', ''), 'score': attempt.get('promptScore')})
                     continue
-                result_by_id = {item['id']: item for item in grade(test['questions'], attempt)['results']}
+                graded = grade(test['questions'], attempt)
+                result_by_id = {item['id']: item for item in graded['results']}
                 order = attempt.get('questionOrder') or [q['id'] for q in test['questions']]
                 question_map = {q['id']: q for q in test['questions']}
                 ordered = [question_map[qid] for qid in order if qid in question_map]
                 ordered.extend(q for q in test['questions'] if q['id'] not in set(order))
+                option_order = attempt.get('optionOrder', {})
                 questions = []
                 for q in ordered:
                     response = attempt.get('responses', {}).get(q['id'])
                     options = q.get('options', [])
-                    if q['type'] in {'single', 'multiple', 'boolean'}:
-                        selected = response if isinstance(response, list) else []
-                        answer = [options[i] for i in selected if type(i) is int and 0 <= i < len(options)]
-                        correct = [options[i] for i in q.get('key', []) if type(i) is int and 0 <= i < len(options)]
-                    elif q['type'] == 'ranking':
-                        selected = response if isinstance(response, list) else []
-                        answer = [options[i] for i in selected if type(i) is int and 0 <= i < len(options)]
-                        correct = [options[i] for i in q.get('key', []) if type(i) is int and 0 <= i < len(options)]
+                    result = result_by_id.get(q['id'], {})
+                    if q.get('options'):
+                        permutation = option_order.get(q['id']) or list(range(len(options)))
+                        selected = response if isinstance(response, list) else ([response] if type(response) is int else [])
+                        correct_indices = q.get('key', [])
+                        choices = [{'text': options[original], 'selected': display_index in selected,
+                                    'correct': original in correct_indices}
+                                   for display_index, original in enumerate(permutation)
+                                   if type(original) is int and 0 <= original < len(options)]
+                        answer = [choice['text'] for choice in choices if choice['selected']]
+                        correct = [options[i] for i in correct_indices if type(i) is int and 0 <= i < len(options)]
                     elif q['type'] == 'matching':
                         pairs = q.get('pairs', [])
-                        answer = [f"{pair.get('left', '')} → {pairs[index].get('right', '')}" for pair, index in zip(pairs, response or []) if type(index) is int and 0 <= index < len(pairs)]
+                        answer = [f"{pair.get('left', '')} → {pairs[index].get('right', '')}"
+                                  for pair, index in zip(pairs, response or [])
+                                  if type(index) is int and 0 <= index < len(pairs)]
                         correct = [f"{pair.get('left', '')} → {pair.get('right', '')}" for pair in pairs]
+                        choices = []
                     else:
                         answer = response or ''
                         correct = q.get('referenceAnswer') or 'No fixed answer'
+                        choices = []
                     questions.append({'text': q.get('text', ''), 'context': q.get('context', ''),
                                       'table': q.get('table', []), 'type': q.get('type'),
-                                      'response': answer, 'correctAnswer': correct,
-                                      'score': result_by_id.get(q['id'], {}).get('score'),
-                                      'status': result_by_id.get(q['id'], {}).get('status')})
-                sections.append({'type': kind, 'title': title, 'submittedAt': attempt.get('submittedAt'),
-                                 'score': grade(test['questions'], attempt)['total'], 'questions': questions})
-            name = next((a['name'] for test in tests.values() if test for a in tx.all_attempts(test['id'])
-                         if student_key(a.get('studentId', '')) == key), '')
-        return jsonify(name=name, studentId=student, sections=sections, serverNow=now_ms())
+                                      'choices': choices, 'response': answer, 'correctAnswer': correct,
+                                      'score': result.get('score'), 'status': result.get('status')})
+                sections.append({'type': kind, 'title': titles[kind], 'maxScore': maximums[kind],
+                                 'hasAttempt': True, 'submittedAt': attempt.get('submittedAt'),
+                                 'score': graded['total'], 'questions': questions})
+            name = next((candidate_name for candidate_name in names if candidate_name), '')
+        return jsonify(driveName=drive.get('name', ''), name=name, studentId=student,
+                       sections=sections, serverNow=now_ms())
 
     @app.post('/api/admin/drives/<drive_id>/candidate-decision')
     @admin

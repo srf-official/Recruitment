@@ -999,12 +999,57 @@ async function saveManualInterview(driveId, encodedId, button) {
         toast('Interview shortlist saved.');
     } catch(e) { handleError(e); button.disabled = false; }
 }
+let candidateResponseReport = null;
+let candidateResponseActive = 'aptitude';
+function selectCandidateResponseModule(type) {
+    candidateResponseActive = type;
+    const section = (candidateResponseReport?.sections || []).find(item => item.type === type);
+    const content = document.querySelector('.candidate-report-content');
+    if (!content || !candidateResponseReport) return;
+    content.innerHTML = renderCandidateResponseSection(section);
+    document.querySelectorAll('.candidate-report-module').forEach(button => {
+        button.classList.toggle('active', button.dataset.module === type);
+    });
+}
+function renderCandidateResponseSection(section) {
+    if (!section) return '<div class="candidate-report-empty">No round details are available.</div>';
+    const score = section.score === null || section.score === undefined ? '—' : esc(section.score);
+    let body = '';
+    if (!section.hasAttempt) {
+        body = '<div class="candidate-report-empty"><span class="candidate-report-empty-icon">○</span><strong>No response recorded</strong><p>This candidate has no saved result for this round.</p></div>';
+    } else if (section.type === 'gd') {
+        const criteria = (section.criteria || []).map(item => '<div class="candidate-gd-criterion"><span>'+esc(item.label)+'</span><strong>'+esc(item.score ?? '—')+' <small>/ 5</small></strong></div>').join('');
+        body = '<div class="candidate-gd-card"><div class="candidate-gd-grid">'+criteria+'</div><div class="candidate-gd-meta"><span>Evaluator</span><strong>'+esc(section.evaluator || '—')+'</strong><span>Recommendation</span><strong>'+(section.recommend ? 'Recommended' : 'Not recommended')+'</strong></div></div>';
+    } else if (section.type === 'prompt') {
+        body = '<article class="candidate-prompt-answer">'+esc(section.response || 'No response recorded')+'</article>';
+    } else {
+        body = (section.questions || []).map((q, i) => {
+            const choices = (q.choices || []).length
+                ? '<div class="candidate-report-choices">'+q.choices.map(choice => '<div class="candidate-report-choice'+(choice.correct?' is-correct':'')+(choice.selected&&!choice.correct?' is-incorrect':'')+(choice.selected?' is-selected':'')+'"><span class="candidate-choice-mark">'+(choice.correct?'✓':choice.selected?'×':'')+'</span><span>'+esc(choice.text)+'</span>'+(choice.selected?'<small>Candidate choice</small>':'')+'</div>').join('')+'</div>'
+                : '<div class="candidate-report-answer-grid"><div><span>Candidate response</span><p>'+esc(Array.isArray(q.response)?q.response.join('; '):q.response||'No response')+'</p></div><div><span>Reference answer</span><p>'+esc(Array.isArray(q.correctAnswer)?q.correctAnswer.join('; '):q.correctAnswer||'—')+'</p></div></div>';
+            const table = q.table && q.table.length ? '<pre class="candidate-report-table">'+esc(JSON.stringify(q.table, null, 2))+'</pre>' : '';
+            return '<article class="candidate-report-question"><div class="candidate-question-top"><h4>Question '+(i+1)+'</h4><span>'+esc(q.score ?? 0)+' marks</span></div>'+(q.context?'<p class="candidate-question-context">'+esc(q.context)+'</p>':'')+'<p class="candidate-question-text">'+esc(q.text)+'</p>'+table+choices+'</article>';
+        }).join('') || '<div class="candidate-report-empty">No question responses recorded.</div>';
+    }
+    return '<div class="candidate-report-round-head"><div><span class="candidate-report-kicker">ROUND DETAILS</span><h3>'+esc(section.title)+'</h3></div><div class="candidate-report-total"><strong>'+score+'</strong><span>/ '+esc(section.maxScore)+' marks</span></div></div><div class="candidate-report-round-body">'+body+'</div>';
+}
 async function openCandidateResponses(driveId, encodedStudent) {
- const studentId=decodeURIComponent(encodedStudent);
- try { const data=await api('/api/admin/drives/'+driveId+'/candidate-responses?studentId='+encodeURIComponent(studentId));
- const sections=(data.sections||[]).map(section=>{ if(section.type==='prompt') return '<section class="candidate-report-section"><h3>Prompt Engineering</h3><p>'+esc(section.response||'No response')+'</p></section>'; const questions=(section.questions||[]).map((q,i)=>'<article class="candidate-report-question"><h4>Question '+(i+1)+'</h4>'+(q.context?'<p>'+esc(q.context)+'</p>':'')+(q.table&&q.table.length?'<pre>'+esc(JSON.stringify(q.table))+'</pre>':'')+'<p>'+esc(q.text)+'</p><dl><dt>Candidate response</dt><dd>'+esc(Array.isArray(q.response)?q.response.join('; '):q.response||'No response')+'</dd><dt>Correct answer</dt><dd>'+esc(Array.isArray(q.correctAnswer)?q.correctAnswer.join('; '):q.correctAnswer||'—')+'</dd><dt>Marks</dt><dd>'+esc(q.score??'—')+'</dd></dl></article>').join(''); return '<section class="candidate-report-section"><h3>'+esc(section.title)+' · '+esc(section.score??'—')+' marks</h3>'+questions+'</section>'; }).join('');
- dialog('Candidate responses · '+(data.name?esc(data.name):esc(studentId)), '<p class="sub">Student ID: '+esc(studentId)+'</p>'+(sections||'<p>No responses recorded for this candidate.</p>'), '<button onclick="modal.close()">Close</button>'); modal.classList.add('candidate-report');
- } catch(e){handleError(e);} }
+    const studentId = decodeURIComponent(encodedStudent);
+    try {
+        const data = await api('/api/admin/drives/' + driveId + '/candidate-responses?studentId=' + encodeURIComponent(studentId));
+        candidateResponseReport = data;
+        candidateResponseActive = 'aptitude';
+        const sections = data.sections || [];
+        const modules = sections.map(section => {
+            const score = section.score === null || section.score === undefined ? '—' : esc(section.score);
+            return '<button type="button" class="candidate-report-module module-'+esc(section.type)+(section.type === 'aptitude' ? ' active' : '')+'" data-module="'+esc(section.type)+'" onclick="selectCandidateResponseModule(\''+esc(section.type)+'\')"><span class="candidate-module-icon">'+({aptitude:'◈',gd:'◎',language:'▤',prompt:'✳'}[section.type]||'◦')+'</span><span class="candidate-module-copy"><strong>'+esc(section.title)+'</strong><small>'+(section.hasAttempt?'Response saved':'No response')+'</small></span><span class="candidate-module-score"><strong>'+score+'</strong><small>/ '+esc(section.maxScore)</small></span></button>';
+        }).join('');
+        const identity = '<div class="candidate-report-identity"><span class="candidate-report-drive">'+esc(data.driveName || 'Recruitment drive')+'</span><h3>'+esc(data.name || studentId)+'</h3><span>Student ID · '+esc(studentId)+'</span></div>';
+        const body = '<div class="candidate-report-layout"><aside class="candidate-report-sidebar"><div class="candidate-sidebar-label">ASSESSMENT MODULES</div>'+modules+'</aside><div class="candidate-report-main">'+identity+'<div class="candidate-report-content">'+renderCandidateResponseSection(sections.find(section => section.type === candidateResponseActive))+'</div></div></div>';
+        dialog('Candidate performance report', body, '<button onclick="modal.close()">Close</button>', true);
+        modal.classList.add('candidate-report', 'full-candidate-report');
+    } catch (e) { handleError(e); }
+}
 async function saveInterviewer(driveId, encodedId, interviewer) {
     const studentId = decodeURIComponent(encodedId), key = studentId.normalize('NFKC').toLowerCase(); const draft=finalInterviewDrafts[key]; if(draft?.value&&draft.manual&&!String(draft.remarks||'').trim()){toast('Enter remarks before assigning an interviewer.');return;}
     try {
