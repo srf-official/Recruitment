@@ -8,7 +8,7 @@ from docx.shared import Inches, Pt
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
-from domain import grade
+from domain import grade, require
 
 
 def filename(value):
@@ -22,13 +22,39 @@ def minutes(a):
     return round(max(0, (a['submittedAt'] - a['startedAt']) / 60000), 4) if a.get('submittedAt') else None
 
 
-def results_rows(test, attempts, minimum_marks=None, minimum_time=None):
+def number_filter(raw, operator='gte', upper=None):
+    require(operator in {'gte', 'gt', 'lte', 'lt', 'eq', 'between', 'blank', 'notblank'}, 'Invalid numeric comparison.')
+    if operator in {'blank', 'notblank'}:
+        return lambda value: (value is None) if operator == 'blank' else (value is not None)
+    if raw is None or raw == '':
+        require(operator != 'between', 'Enter both range values.')
+        return lambda value: True
+    import math
+    try:
+        target = float(raw)
+        high = float(upper) if operator == 'between' else None
+    except (ValueError, TypeError):
+        require(False, 'Invalid numeric filter.')
+    require(math.isfinite(target) and (high is None or math.isfinite(high) and high >= target), 'Invalid numeric filter range.')
+    def matches(value):
+        if value is None:
+            return False
+        return {'gte': lambda: value >= target, 'gt': lambda: value > target,
+                'lte': lambda: value <= target, 'lt': lambda: value < target,
+                'eq': lambda: value == target, 'between': lambda: target <= value <= high}[operator]()
+    return matches
+
+
+def results_rows(test, attempts, minimum_marks=None, minimum_time=None, filters=None):
+    filters = filters or {}
+    marks_match = number_filter(minimum_marks, filters.get('marksOp', 'gte'), filters.get('maxMarks'))
+    time_match = number_filter(minimum_time, filters.get('timeOp', 'gte'), filters.get('maxTime'))
     output = []
     for a in attempts:
         g, elapsed = grade(test['questions'], a), minutes(a)
-        if minimum_marks is not None and (not a.get('submittedAt') or g['total'] < minimum_marks):
+        if not marks_match(g['total'] if a.get('submittedAt') else None):
             continue
-        if minimum_time is not None and (elapsed is None or elapsed < minimum_time):
+        if not time_match(elapsed):
             continue
         output.append((a, g, elapsed))
     return sorted(output, key=lambda row: (not bool(row[0].get('submittedAt')), -row[1]['total'], row[2] or 0))
@@ -146,14 +172,14 @@ def final_excel(drive, rows):
     sheet = book.active
     sheet.title = 'Final scores'
     sheet.append(['Drive name', 'Candidate name', 'Student ID', 'Aptitude score', 'Shortlisted in Aptitude',
-                  'GD score (20)', 'GD recommend', 'GD evaluator', 'Language & Reasoning score', 'Interview shortlisted',
+                  'GD score (20)', 'GD recommend', 'GD evaluator', 'Language score (20)', 'Reasoning score (5)', 'Interview shortlisted',
                   'Interview remarks', 'Prompt Engineering score (10)', 'Interviewer', 'Final status'])
     for row in rows:
         sheet.append([drive['name'], row['name'], row['studentId'], row.get('aptitudeScore'),
                       'Yes' if row.get('aptitudeShortlisted') else 'No', row.get('gdScore'),
-                      'Yes' if row.get('gdRecommended') else 'No', row.get('gdEvaluator', ''), row.get('languageScore'),
+                      'Yes' if row.get('gdRecommended') else 'No', row.get('gdEvaluator', ''), row.get('languageScore'), row.get('reasoningScore'),
                       'Yes' if row.get('interviewShortlisted') else 'No', row.get('interviewRemarks', ''), row.get('promptScore'),
                       row.get('interviewer', ''),
                       {'none': 'None', 'selected': 'Selected', 'on-hold': 'On hold', 'rejected': 'Rejected'}.get(row.get('outcome'), 'None')])
-    style_sheet(sheet, [34, 28, 20, 18, 24, 16, 18, 26, 28, 24, 45, 30, 26, 18])
+    style_sheet(sheet, [34, 28, 20, 18, 24, 16, 18, 26, 22, 22, 24, 45, 30, 26, 18])
     return workbook_bytes(book)

@@ -5,7 +5,15 @@ const COMPANY_LOGO = `<img class="company-logo" alt="TurnB" src="data:image/png;
 let view = 'overview', candidateSession = null, currentAttempt = null, answerFocus = false;
 const app = document.querySelector('#app'), modal = document.querySelector('#modal');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function toast(message) { let el = document.querySelector('#toast'); el.textContent = message; el.classList.remove('hidden'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.add('hidden'), 5500); }
+function toast(message) {
+    const el = document.querySelector('#toast');
+    el.textContent = message; el.setAttribute?.('role','alert');
+    el.classList.remove('hidden');
+    if (typeof el.showPopover === 'function') { el.setAttribute('popover','manual'); if (!el.matches(':popover-open')) el.showPopover(); }
+    else if (modal.open && el.parentElement !== modal && typeof modal.appendChild === 'function') modal.appendChild(el);
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => { el.hidePopover?.(); el.classList.add('hidden'); }, 5500);
+}
 function clock(n) { return String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0'); }
 function date(t) { return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 function finalize(s, reason) { if (s.closedAt)
@@ -450,12 +458,42 @@ function overviewPage() {
 }
 function openDriveScheduler(id) { expandedDrive = id; filterName = ''; filterStatus = 'all'; view = 'sessions'; renderAdmin(); }
 function renderAdmin() { if (!['overview', 'sessions', 'question', 'final'].includes(view)) view = 'overview'; const content = view === 'overview' ? overviewPage() : view === 'question' ? questionOverview() : view === 'final' ? finalScoresPage() : scheduler(); app.innerHTML = shell(content); }
-function responseRows(s) { return s.attempts.map(a => ({ a, g: gradeAttempt(s, a), minutes: elapsedMinutes(a) })).filter(r => { let f = responseFilters; for (let [key, value] of [['minMarks', r.a.submittedAt ? r.g.total : null], ['minTime', r.minutes]])
-    if (f[key] !== '' && (value === null || !Number.isFinite(Number(f[key])) || value < Number(f[key])))
-        return false; return true; }).sort((x, y) => Number(!!y.a.submittedAt) - Number(!!x.a.submittedAt) || (y.g.total - x.g.total) || ((x.minutes ?? Infinity) - (y.minutes ?? Infinity))); }
-function filterValidation() { let f = responseFilters; if ([f.minMarks, f.minTime].some(v => v !== '' && !Number.isFinite(Number(v))))
-    return 'Enter valid numeric filter values.'; return f.minTime !== '' && Number(f.minTime) < 0 ? 'Minimum time must be zero or positive.' : ''; }
-function clearResponseFilters() { responseFilters = { minMarks: '', minTime: '' }; ['minMarks', 'minTime'].forEach(k => document.querySelector('#filter-' + k).value = ''); updateResponseTable(); }
+function responseNumberMatches(value, op, target, upper) {
+    const present=typeof value==='number'&&Number.isFinite(value);
+    if(op==='blank')return !present; if(op==='notblank')return present;
+    if(target===''||target==null)return true; if(!present)return false;
+    const n=Number(target);
+    return ({gte:()=>value>=n,gt:()=>value>n,lte:()=>value<=n,lt:()=>value<n,eq:()=>value===n,between:()=>value>=n&&value<=Number(upper)})[op||'gte']?.()||false;
+}
+function responseRows(s) { return s.attempts.map(a=>({a,g:gradeAttempt(s,a),minutes:elapsedMinutes(a)})).filter(r=>{
+    const f=responseFilters,aptitude=s.type==='aptitude';
+    return responseNumberMatches(r.a.submittedAt?r.g.total:null,aptitude?f.marksOp:'gte',f.minMarks,f.maxMarks)&&responseNumberMatches(r.minutes,aptitude?f.timeOp:'gte',f.minTime,f.maxTime);
+}).sort((x,y)=>Number(!!y.a.submittedAt)-Number(!!x.a.submittedAt)||(y.g.total-x.g.total)||((x.minutes??Infinity)-(y.minutes??Infinity))); }
+function filterValidation() {
+    const aptitude=state.sessions.find(s=>s.id===responseSession)?.type==='aptitude',f=responseFilters;
+    for(const [key,op,upper] of [['minMarks',aptitude?(f.marksOp||'gte'):'gte','maxMarks'],['minTime',aptitude?(f.timeOp||'gte'):'gte','maxTime']]){
+        if(['blank','notblank'].includes(op))continue;
+        if(f[key]!==''&&f[key]!=null&&!Number.isFinite(Number(f[key])))return 'Enter valid numeric filter values.';
+        if(op==='between'&&(f[key]===''||f[upper]===''||f[upper]==null||!Number.isFinite(Number(f[upper]))||Number(f[upper])<Number(f[key])))return 'Enter a valid range: the upper value must be at least the lower value.';
+        if(key==='minTime'&&f[key]!==''&&Number(f[key])<0)return 'Time must be zero or positive.';
+    } return '';
+}
+function responseFilterControl(key,label,aptitude) {
+    const opKey=key==='minMarks'?'marksOp':'timeOp',upperKey=key==='minMarks'?'maxMarks':'maxTime';
+    return '<div class="response-number-filter"><label for="filter-'+key+'">'+label+'</label>'+(aptitude?'<select aria-label="'+label+' comparison" data-filter-key="'+key+'" onchange="changeResponseOperator(this.dataset.filterKey,this.value)">'+Object.entries(FINAL_OPERATORS).map(([op,text])=>'<option value="'+op+'">'+text+'</option>').join('')+'</select>':'')+'<div class="response-filter-values"><input id="filter-'+key+'" type="number" step="any" aria-label="'+label+' value" oninput="responseFilters.'+key+'=this.value;updateResponseTable()"><input id="filter-'+upperKey+'" type="number" step="any" hidden placeholder="Upper value" aria-label="'+label+' upper value" oninput="responseFilters.'+upperKey+'=this.value;updateResponseTable()"></div></div>';
+}
+function changeResponseOperator(key,op) {
+    const opKey=key==='minMarks'?'marksOp':'timeOp',upperKey=key==='minMarks'?'maxMarks':'maxTime';
+    responseFilters[opKey]=op;
+    document.querySelector('#filter-'+key).hidden=['blank','notblank'].includes(op);
+    document.querySelector('#filter-'+upperKey).hidden=op!=='between'; updateResponseTable();
+}
+function clearResponseFilters() {
+    responseFilters={minMarks:'',minTime:'',marksOp:'gte',timeOp:'gte',maxMarks:'',maxTime:''};
+    ['minMarks','minTime','maxMarks','maxTime'].forEach(k=>{const el=document.querySelector('#filter-'+k);if(el)el.value='';});
+    modal.querySelectorAll('.response-number-filter select').forEach(el=>el.value='gte');
+    ['minMarks','minTime'].forEach(key=>changeResponseOperator(key,'gte')); updateResponseTable();
+}
 function deleteQuizQuestion(type, index) { if (!modal.open || !modal.className.includes('question-manager') || managerType !== type)
     openQuestionManager(type); if (managerReadOnly)
     return; if (draftIndex !== -2) {
@@ -474,7 +512,7 @@ function confirmSubmit() { expire(); settlePromptSessions(); let { s, a } = curr
 function openResultsTable(id) { expire(); settlePromptSessions(); let s = state.sessions.find(s => s.id === id); if (s.type === 'prompt') {
     showPromptResponses(s);
     return;
-} responseSession = id; responseFilters = { minMarks: '', minTime: '' }; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by minimum marks and minimum time taken. Totals with pending questions are provisional.</p></header><section class="results-controls">${[['minMarks', 'Min marks (out of ' + (s.type === 'aptitude' ? 30 : 25) + ')'], ['minTime', 'Min time (minutes) (out of ' + durationMinutes(s) + ')']].map(([key, label]) => `<div><label for="filter-${key}">${label}</label><input id="filter-${key}" type="number" step="any" ${key === 'minTime' ? 'min="0"' : ''} oninput="responseFilters.${key}=this.value;updateResponseTable()"></div>`).join('')}<div id="score-distribution" class="score-distribution"></div>${['aptitude','language'].includes(s.type) ? '<div class="shortlist-actions"><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button></div>' : ''}<div id="response-filter-error" class="filter-error" role="alert"></div></section><div class="results-scroll" id="responseTable"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">Shortlisting applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.</div></div><div class="export-actions">${s.type === 'aptitude' ? `<button class="small" onclick="openAptitudeReview('${s.id}')">View candidate responses</button>` : ''}<button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
+} responseSession = id; responseFilters = { minMarks: '', minTime: '' }; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by marks and time taken. Totals with pending questions are provisional.</p></header><section class="results-controls">${responseFilterControl('minMarks',(s.type==='aptitude'?'Marks':'Min marks')+' (out of '+(s.type==='aptitude'?30:25)+')',s.type==='aptitude')}${responseFilterControl('minTime',(s.type==='aptitude'?'Time (minutes, out of '+durationMinutes(s)+')':'Min time (minutes) (out of '+durationMinutes(s)+')'),s.type==='aptitude')}<div id="score-distribution" class="score-distribution"></div>${['aptitude','language'].includes(s.type) ? '<div class="shortlist-actions"><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button></div>' : ''}<div id="response-filter-error" class="filter-error" role="alert"></div></section><div class="results-scroll" id="responseTable"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">Shortlisting applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.</div></div><div class="export-actions">${s.type === 'aptitude' ? `<button class="small" onclick="openAptitudeReview('${s.id}')">View candidate responses</button>` : ''}<button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
     modal.showModal(); }
 // Server adapter for the approved two-page UI. No assessment keys or candidate records ship in JS.
 let csrf = '', revision = 0, serverOffset = 0, adminPending = null, adminSaving = null, adminBlocked = false;
@@ -581,7 +619,7 @@ async function startCandidate(event) {
     document.querySelector('#confirmCandidateDetails').onclick = () => showCandidateInstructions({name, studentId});
     if (!modal.open) modal.showModal();
 }
-function showCandidateInstructions(details) { const s=state.sessions[0], rules=s.scoringRules||{}; const correct=rules.correct??1, wrong=rules.wrong??0; dialog('Test instructions', `<p><b>${s.questionCount||s.questions.length} questions</b> · ${durationMinutes(s)} minutes.</p><ul><li>Correct answer: ${correct} mark${correct===1?'':'s'}; incorrect answer: ${wrong}.</li><li>Unanswered questions score 0. Use Previous, Next, or the question navigator to move between questions.</li><li>Submit using Submit test. At time expiry or administrator stop, the current response is submitted and locked.</li><li>Do not switch tabs during the assessment. Any misconduct may result in rejection.</li></ul><p class="sub">The application does not record tab changes.</p>`, `<button onclick="modal.close()">Back</button><button class="primary" id="startCandidateTest">Start test</button>`); document.querySelector('#startCandidateTest').onclick=()=>beginConfirmedCandidate(details); }
+function showCandidateInstructions(details) { const s=state.sessions[0], rules=s.scoringRules||{}; const correct=rules.correct??1, wrong=rules.wrong??0; dialog('Test instructions', `<p><b>${s.questionCount||s.questions.length} questions</b> · ${durationMinutes(s)} minutes.</p><ul><li>Correct answer: ${correct} mark${correct===1?'':'s'}; incorrect answer: ${wrong}.</li><li>Unanswered questions score 0. Use Previous, Next, or the question navigator to move between questions.</li><li>Submit using Submit test. When the allotted time ends, the form will be submitted automatically and all filled responses will be saved.</li><li>Do not switch tabs during the assessment. Any misconduct may result in rejection.</li></ul>`, `<button onclick="modal.close()">Back</button><button class="primary" id="startCandidateTest">Start test</button>`); document.querySelector('#startCandidateTest').onclick=()=>beginConfirmedCandidate(details); }
 async function beginConfirmedCandidate(details) { let s = state.sessions[0], button = document.querySelector('#startCandidateTest'); button.disabled = true; try {
     let result = await api('/api/candidate/' + s.id + '/start', 'POST', details);
     modal.close();
@@ -833,7 +871,7 @@ bootstrap();
 let finalDriveFilter = '', finalScoreFilters = {}, finalDriveCurrent = '';
 const FINAL_COLUMNS = [
  ['name','Candidate name'],['studentId','Student ID'],['aptitudeScore','Aptitude score'],['aptitudeShortlisted','Shortlisted in Aptitude'],
- ['gdScore','GD score (20)'],['gdRecommended','GD recommend'],['gdEvaluator','GD evaluator'],['languageScore','Language & Reasoning score'],['interviewShortlisted','Interview shortlisted'],
+ ['gdScore','GD score (20)'],['gdRecommended','GD recommend'],['gdEvaluator','GD evaluator'],['languageScore','Language score (20)'],['reasoningScore','Reasoning score (5)'],['interviewShortlisted','Interview shortlisted'],
  ['interviewRemarks','Remarks'],['promptScore','Prompt Engineering (10)'],['interviewer','Interviewer'],['outcome','Final status']
 ];
 function finalScoresPage() { return heading('Final scores','Review scores, shortlist interview candidates and record final decisions.','')+'<div class="filterbar"><div class="field"><label for="finalDriveFilter">Find a drive</label><input id="finalDriveFilter" type="search" value="'+esc(finalDriveFilter)+'" placeholder="Search college, year or drive name" oninput="finalDriveFilter=this.value;updateFinalDriveList()"></div></div><div id="finalDriveList">'+finalDriveList()+'</div>'; }
@@ -843,12 +881,13 @@ function combinedDriveScores(driveId) {
  let candidates=new Map(),drive=state.drives.find(d=>d.id===driveId);
  for(const [key,member] of Object.entries(drive?.gd?.candidates||{})){const scores=drive.gd.scores?.[key]||{};candidates.set(key,{name:member.name,studentId:member.studentId,latest:-1,gdScore:Number.isFinite(scores.total)?scores.total:null,gdRecommended:scores.shortlisted===true});}
  for(let test of state.sessions.filter(x=>x.driveId===driveId))for(let attempt of test.attempts||[]){let key=attempt.studentId.normalize('NFKC').toLowerCase(),row=candidates.get(key);if(!row){row={name:attempt.name,studentId:attempt.studentId,latest:-1,gdScore:null,gdRecommended:false};candidates.set(key,row);}if((attempt.startedAt||0)>=row.latest){row.name=attempt.name;row.studentId=attempt.studentId;row.latest=attempt.startedAt||0;}if(!['aptitude','language','prompt'].includes(test.type))continue;let old=row[test.type];if(!old||(attempt.startedAt||0)>(old.attempt.startedAt||0)||((attempt.startedAt||0)===(old.attempt.startedAt||0)&&attempt.id>old.attempt.id))row[test.type]={test,attempt};}
- return [...candidates.values()].map(row=>{let d=drive?.finalDecisions?.[row.studentId.normalize('NFKC').toLowerCase()]||{};return {...row,aptitudeScore:finalScoreValue(row.aptitude),languageScore:finalScoreValue(row.language),promptScore:row.prompt?.attempt.promptScore??null,interviewShortlisted:d.interviewShortlisted===true,interviewRemarks:d.interviewRemarks||'',interviewer:d.interviewer||'',gdEvaluator:drive?.gd?.pools?.find(p=>p.members.includes(row.studentId.normalize('NFKC').toLowerCase()))?.evaluatorName||'',outcome:d.outcome||'none'};}).sort((a,b)=>a.name.localeCompare(b.name)||a.studentId.localeCompare(b.studentId));
+ return [...candidates.values()].map(row=>{let d=drive?.finalDecisions?.[row.studentId.normalize('NFKC').toLowerCase()]||{};return {...row,aptitudeScore:finalScoreValue(row.aptitude),languageScore:finalLanguagePart(row.language,0),reasoningScore:finalLanguagePart(row.language,1),promptScore:row.prompt?.attempt.promptScore??null,interviewShortlisted:d.interviewShortlisted===true,interviewRemarks:d.interviewRemarks||'',interviewer:d.interviewer||'',gdEvaluator:drive?.gd?.pools?.find(p=>p.members.includes(row.studentId.normalize('NFKC').toLowerCase()))?.evaluatorName||'',outcome:d.outcome||'none'};}).sort((a,b)=>a.name.localeCompare(b.name)||a.studentId.localeCompare(b.studentId));
 }
+function finalLanguagePart(result,index) { return result?.attempt.submittedAt?languageScoreParts(result.test,gradeAttempt(result.test,result.attempt))[index]:null; }
 function finalScoreValue(result) { return result?.attempt.submittedAt?gradeAttempt(result.test,result.attempt).total:null; }
 function finalScoreCell(result) { if(!result)return '—';if(!result.attempt.submittedAt)return 'In progress';let score=gradeAttempt(result.test,result.attempt);return score.total+(score.pending?'<small>'+score.pending+' pending · provisional</small>':'');}
 function finalValue(row,key) { if(key==='aptitudeShortlisted')return row.aptitude?.attempt.shortlisted?'Yes':'No';if(key==='gdRecommended')return row.gdRecommended?'Yes':'No';if(key==='interviewShortlisted')return row.interviewShortlisted?'Yes':'No';if(key==='outcome')return ({none:'None',selected:'Selected','on-hold':'On hold',rejected:'Rejected'}[row.outcome]||'None');return row[key]==null?'—':String(row[key]); }
-const FINAL_NUMBER_KEYS = new Set(['aptitudeScore', 'gdScore', 'languageScore', 'promptScore']);
+const FINAL_NUMBER_KEYS = new Set(['aptitudeScore', 'gdScore', 'languageScore', 'reasoningScore', 'promptScore']);
 const FINAL_OPERATORS = {gte: 'Greater than or equal to', gt: 'Greater than', lte: 'Less than or equal to', lt: 'Less than', eq: 'Equal to', between: 'Between', blank: 'Is blank', notblank: 'Is not blank'};
 function finalRowsFiltered(rows) {
     const filters = finalScoreFilters[finalDriveCurrent] || {};
@@ -973,9 +1012,9 @@ function finalTable(rows, driveId) {
         const student = encodeURIComponent(row.studentId).replace(/'/g, '%27');
         const status = ['none','selected','on-hold','rejected'].includes(row.outcome) ? row.outcome : 'none';
         const draft = finalInterviewDrafts[row.studentId.normalize('NFKC').toLowerCase()] || {value:row.interviewShortlisted,remarks:row.interviewRemarks,manual:row.interviewManual};
-        return `<tr><td class="final-candidate-name">${esc(row.name)}</td><td class="final-student-id">${esc(row.studentId)}</td><td class="final-number">${finalScoreCell(row.aptitude)}</td><td>${finalBooleanBadge(row.aptitude?.attempt.shortlisted)}</td><td class="final-number">${row.gdScore ?? '—'}</td><td>${finalBooleanBadge(row.gdRecommended)}</td><td>${esc(row.gdEvaluator)}</td><td class="final-number">${finalScoreCell(row.language)}</td><td><select class="final-status-select" aria-label="Interview shortlisted for ${esc(row.name)}" onchange="draftFinalInterview('${student}','value',this.value==='yes',this)"><option value="no" ${!draft.value?'selected':''}>No</option><option value="yes" ${draft.value?'selected':''}>Yes</option></select></td><td class="interview-remarks"><textarea maxlength="2000" aria-label="Interview shortlist remarks for ${esc(row.name)}" placeholder="Required for manual shortlist" oninput="draftFinalInterview('${student}','remarks',this.value,this)" onblur="saveManualInterview('${driveId}','${student}',this)">${esc(draft.remarks || '')}</textarea></td><td><label class="final-prompt-score"><input aria-label="Prompt Engineering score for ${esc(row.name)}" type="number" min="0" max="10" step="0.5" value="${row.promptScore ?? ''}" onchange="savePromptScoreForDrive('${driveId}','${student}',this.value)"><span>/ 10</span></label></td><td>${(state.drives.find(d=>d.id===driveId)?.members||[]).length ? `<select class="interviewer-select" aria-label="Interviewer for ${esc(row.name)}" ${draft.value&&draft.manual&&!String(draft.remarks||'').trim()?'disabled':''} onchange="saveInterviewer('${driveId}','${student}',this.value)"><option value="">Select interviewer</option>${(state.drives.find(d=>d.id===driveId).members||[]).map(m=>`<option value="${esc(m)}" ${row.interviewer===m?'selected':''}>${esc(m)}</option>`).join('')}</select>` : `<input class="interviewer-input" maxlength="100" aria-label="Interviewer for ${esc(row.name)}" value="${esc(row.interviewer)}" onchange="saveInterviewer('${driveId}','${student}',this.value)">`}</td><td><select class="final-status-select outcome-${status}" aria-label="Final status for ${esc(row.name)}" onchange="saveFinalDecision('${driveId}','${student}',this.value)">${Object.entries({none:'None',selected:'Selected','on-hold':'On hold',rejected:'Rejected'}).map(([value,label])=>`<option value="${value}" ${status===value?'selected':''}>${label}</option>`).join('')}</select></td><td><button class="small" onclick="openCandidateResponses('${driveId}','${student}')">View full responses</button></td></tr>`;
+        return `<tr><td class="final-candidate-name">${esc(row.name)}</td><td class="final-student-id">${esc(row.studentId)}</td><td class="final-number">${finalScoreCell(row.aptitude)}</td><td>${finalBooleanBadge(row.aptitude?.attempt.shortlisted)}</td><td class="final-number">${row.gdScore ?? '—'}</td><td>${finalBooleanBadge(row.gdRecommended)}</td><td>${esc(row.gdEvaluator)}</td><td class="final-number">${row.languageScore??'—'}</td><td class="final-number">${row.reasoningScore??'—'}</td><td><select class="final-status-select" aria-label="Interview shortlisted for ${esc(row.name)}" onchange="draftFinalInterview('${student}','value',this.value==='yes',this)"><option value="no" ${!draft.value?'selected':''}>No</option><option value="yes" ${draft.value?'selected':''}>Yes</option></select></td><td class="interview-remarks"><textarea maxlength="2000" aria-label="Interview shortlist remarks for ${esc(row.name)}" placeholder="Required for manual shortlist" oninput="draftFinalInterview('${student}','remarks',this.value,this)" onblur="saveManualInterview('${driveId}','${student}',this)">${esc(draft.remarks || '')}</textarea></td><td><label class="final-prompt-score"><input aria-label="Prompt Engineering score for ${esc(row.name)}" type="number" min="0" max="10" step="0.5" value="${row.promptScore ?? ''}" onchange="savePromptScoreForDrive('${driveId}','${student}',this.value)"><span>/ 10</span></label></td><td>${(state.drives.find(d=>d.id===driveId)?.members||[]).length ? `<select class="interviewer-select" aria-label="Interviewer for ${esc(row.name)}" ${draft.value&&draft.manual&&!String(draft.remarks||'').trim()?'disabled':''} onchange="saveInterviewer('${driveId}','${student}',this.value)"><option value="">Select interviewer</option>${(state.drives.find(d=>d.id===driveId).members||[]).map(m=>`<option value="${esc(m)}" ${row.interviewer===m?'selected':''}>${esc(m)}</option>`).join('')}</select>` : `<input class="interviewer-input" maxlength="100" aria-label="Interviewer for ${esc(row.name)}" value="${esc(row.interviewer)}" onchange="saveInterviewer('${driveId}','${student}',this.value)">`}</td><td><select class="final-status-select outcome-${status}" aria-label="Final status for ${esc(row.name)}" onchange="saveFinalDecision('${driveId}','${student}',this.value)">${Object.entries({none:'None',selected:'Selected','on-hold':'On hold',rejected:'Rejected'}).map(([value,label])=>`<option value="${value}" ${status===value?'selected':''}>${label}</option>`).join('')}</select></td><td><button class="small" onclick="openCandidateResponses('${driveId}','${student}')">View full responses</button></td></tr>`;
     }).join('');
-    return `<div class="final-score-toolbar"><span class="sub"><strong>${visible.length}</strong> of ${rows.length} candidates shown</span><div class="row"><button class="primary small" onclick="shortlistFilteredFinal()" ${visible.length ? '' : 'disabled'}>Shortlist filtered for interview</button><button class="small" onclick="revertFilteredFinal()" ${visible.length ? '' : 'disabled'}>Revert interview shortlist</button><button class="small" onclick="clearFinalScoreFilters()">Clear filters</button><button class="small" onclick="exportFinalScores()" ${visible.length ? '' : 'disabled'}>↓ Export shown to Excel</button></div></div>${chips ? '<div class="final-active-filters">'+chips+'</div>' : ''}<div class="results-scroll" onscroll="closeFinalColumnFilter()"><table class="final-scores-table">${finalHeader()}<tbody>${body || '<tr><td colspan="'+(FINAL_COLUMNS.length+1)+'" class="results-empty">No candidates match these filters.</td></tr>'}</tbody></table></div>`;
+    return `<div class="final-score-toolbar"><span class="sub"><strong>${visible.length}</strong> of ${rows.length} candidates shown</span><div class="row"><button class="primary small" onclick="shortlistFilteredFinal()" ${visible.length ? '' : 'disabled'}>Shortlist filtered for interview</button><button class="small" onclick="revertFilteredFinal()" ${visible.length ? '' : 'disabled'}>Revert interview shortlist</button><button class="small" onclick="clearFinalScoreFilters()">Clear filters</button><div class="final-export-control"><button class="small" onclick="toggleFinalExportMenu()" ${visible.length ? '' : 'disabled'}>↓ Export to Excel ▾</button><div id="final-export-menu" class="final-export-menu" hidden><small>Current filtered view</small><button onclick="exportFinalScores('all')">Export all candidate details</button><button onclick="exportFinalScores('interview')">Export interview</button></div></div></div></div>${chips ? '<div class="final-active-filters">'+chips+'</div>' : ''}<div class="results-scroll" onscroll="closeFinalColumnFilter()"><table class="final-scores-table">${finalHeader()}<tbody>${body || '<tr><td colspan="'+(FINAL_COLUMNS.length+1)+'" class="results-empty">No candidates match these filters.</td></tr>'}</tbody></table></div>`;
 }
 function finalBooleanBadge(value) { return '<span class="final-boolean '+(value?'is-yes':'is-no')+'">'+(value?'Yes':'No')+'</span>'; }
 function setFinalScoreFilter(key, value) {
@@ -989,7 +1028,15 @@ async function savePromptScoreForDrive(driveId,encodedStudentId,value) { let stu
 async function saveFinalDecision(driveId,encodedStudentId,outcome) { try { let studentId=decodeURIComponent(encodedStudentId);await api('/api/admin/drives/'+driveId+'/candidate-decision','POST',{studentId,outcome});let d=state.drives.find(x=>x.id===driveId);d.finalDecisions||={};let entry=d.finalDecisions[studentId.normalize('NFKC').toLowerCase()]||={};entry.outcome=outcome==='none'?null:outcome;rerenderFinalTable(); }catch(e){handleError(e);} }
 async function shortlistFilteredFinal() { try { if(!await flushFinalInterviewDrafts())return; } catch(e){return handleError(e);} let id=finalDriveCurrent,rows=finalRowsFiltered(combinedDriveScores(id));if(!rows.length)return toast('No candidates match the current filters.');try{let result=await api('/api/admin/drives/'+id+'/final-shortlist','POST',{studentIds:rows.map(r=>r.studentId),value:true}),d=state.drives.find(x=>x.id===id);d.finalDecisions||={};rows.forEach(r=>{let entry=d.finalDecisions[r.studentId.normalize('NFKC').toLowerCase()]||={};entry.interviewShortlisted=true;entry.interviewRemarks='';entry.interviewManual=false;});rerenderFinalTable();toast(result.changed+' candidates shortlisted for interview.');}catch(e){handleError(e);} }
 async function revertFilteredFinal() { try { if(!await flushFinalInterviewDrafts())return; } catch(e){return handleError(e);} let id=finalDriveCurrent,rows=finalRowsFiltered(combinedDriveScores(id));if(!rows.length)return toast('No candidates match the current filters.');try{let result=await api('/api/admin/drives/'+id+'/final-shortlist','POST',{studentIds:rows.map(r=>r.studentId),value:false}),d=state.drives.find(x=>x.id===id);rows.forEach(r=>{let entry=d.finalDecisions?.[r.studentId.normalize('NFKC').toLowerCase()];if(entry){entry.interviewShortlisted=false;entry.interviewRemarks='';entry.interviewManual=false;}});rerenderFinalTable();toast(result.changed+' interview shortlist statuses reverted.');}catch(e){handleError(e);} }
-async function exportFinalScores() { try { if(!await flushFinalInterviewDrafts())return; } catch(e){return handleError(e);} let rows=finalRowsFiltered(combinedDriveScores(finalDriveCurrent));if(!rows.length)return toast('No candidates match the current filters.');postDownload('/api/admin/drives/'+finalDriveCurrent+'/final/export',{studentIds:rows.map(r=>r.studentId)},'final-scores.xlsx');}
+function toggleFinalExportMenu(){const menu=document.querySelector('#final-export-menu');menu.hidden=!menu.hidden;}
+async function exportFinalScores(mode='all') {
+    try { if(!await flushFinalInterviewDrafts())return; } catch(e){return handleError(e);}
+    let rows=finalRowsFiltered(combinedDriveScores(finalDriveCurrent));
+    if(mode==='interview')rows=rows.filter(row=>row.interviewShortlisted);
+    if(!rows.length)return toast(mode==='interview'?'No interview-shortlisted candidates in the current view.':'No candidates match the current filters.');
+    const menu=document.querySelector('#final-export-menu');if(menu)menu.hidden=true;
+    postDownload('/api/admin/drives/'+finalDriveCurrent+'/final/export',{studentIds:rows.map(r=>r.studentId),mode},mode==='interview'?'interview-shortlist.xlsx':'final-scores.xlsx');
+}
 async function showFinalScores(driveId) { stopGdRefresh();try{await reloadAdmin();let d=state.drives.find(x=>x.id===driveId);if(!d)return toast('Drive not found.');finalDriveCurrent=driveId;finalScoreFilters[driveId]={aptitudeShortlisted:{values:['Yes']}};finalInterviewDrafts={};let rows=combinedDriveScores(driveId);modal.className='results-dialog final-scores-dialog';modal.innerHTML='<header class="results-header"><div class="row between"><h2>Final scores · '+esc(d.name)+'</h2><button class="quiet" onclick="modal.close()" aria-label="Close final scores">✕</button></div></header><div id="final-score-content">'+finalTable(rows,driveId)+'</div><footer class="results-footer"><span class="sub">'+rows.length+' candidates · Prompt Engineering scores can also be entered in Prompt Engineering responses.</span></footer>';if(!modal.open)modal.showModal();}catch(e){handleError(e);} }
 
 function exportGd(id, mode) {
@@ -1018,7 +1065,16 @@ async function saveManualInterview(driveId, encodedId, button) {
         toast('Interview shortlist saved.');
     } catch(e) { handleError(e); button.disabled = false; }
 }
-let candidateResponseReport = null;
+let candidateResponseReport = null, candidateReportReturn = null;
+function closeCandidateReport() {
+    if(!candidateReportReturn){modal.close();return;}
+    const prior=candidateReportReturn;candidateReportReturn=null;
+    modal.removeEventListener('cancel',candidateReportCancel);
+    modal.className=prior.className;modal.innerHTML=prior.html;modal.scrollTop=prior.scroll;
+    const table=modal.querySelector('.results-scroll');if(table){table.scrollTop=prior.top;table.scrollLeft=prior.left;}
+}
+function candidateReportCancel(event){if(candidateReportReturn){event.preventDefault();closeCandidateReport();}}
+
 let candidateResponseActive = 'aptitude';
 function selectCandidateResponseModule(type) {
     candidateResponseActive = type;
@@ -1046,7 +1102,7 @@ function renderCandidateResponseSection(section) {
             const choices = (q.choices || []).length
                 ? '<div class="candidate-report-choices">'+q.choices.map(choice => '<div class="candidate-report-choice'+(choice.correct?' is-correct':'')+(choice.selected&&!choice.correct?' is-incorrect':'')+(choice.selected?' is-selected':'')+'"><span class="candidate-choice-mark">'+(choice.correct?'✓':choice.selected?'×':'')+'</span><span>'+esc(choice.text)+'</span>'+(choice.selected?'<small>Candidate choice</small>':'')+'</div>').join('')+'</div>'
                 : '<div class="candidate-report-answer-grid"><div><span>Candidate response</span><p>'+esc(Array.isArray(q.response)?q.response.join('; '):q.response||'No response')+'</p></div><div><span>Reference answer</span><p>'+esc(Array.isArray(q.correctAnswer)?q.correctAnswer.join('; '):q.correctAnswer||'—')+'</p></div></div>';
-            const table = q.table && q.table.length ? '<pre class="candidate-report-table">'+esc(JSON.stringify(q.table, null, 2))+'</pre>' : '';
+            const table = Array.isArray(q.table) && q.table.length ? '<div class="candidate-report-table"><table><thead><tr>'+q.table[0].map(cell=>'<th scope="col">'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+q.table.slice(1).map(row=>'<tr>'+row.map(cell=>'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>' : '';
             return '<article class="candidate-report-question"><div class="candidate-question-top"><h4>Question '+(i+1)+'</h4><span>'+esc(q.score ?? 0)+' marks</span></div>'+(q.context?'<p class="candidate-question-context">'+esc(q.context)+'</p>':'')+'<p class="candidate-question-text">'+esc(q.text)+'</p>'+table+choices+'</article>';
         }).join('') || '<div class="candidate-report-empty">No question responses recorded.</div>';
     }
@@ -1055,7 +1111,11 @@ function renderCandidateResponseSection(section) {
 async function openCandidateResponses(driveId, encodedStudent) {
     const studentId = decodeURIComponent(encodedStudent);
     try {
+        if(!await flushFinalInterviewDrafts())return;
+        closeFinalColumnFilter();
         const data = await api('/api/admin/drives/' + driveId + '/candidate-responses?studentId=' + encodeURIComponent(studentId));
+        const previousTable=modal.querySelector('.results-scroll');
+        candidateReportReturn=modal.open?{className:modal.className,html:modal.innerHTML,scroll:modal.scrollTop,top:previousTable?.scrollTop||0,left:previousTable?.scrollLeft||0}:null;
         candidateResponseReport = data;
         candidateResponseActive = 'aptitude';
         const sections = data.sections || [];
@@ -1065,7 +1125,9 @@ async function openCandidateResponses(driveId, encodedStudent) {
         }).join('');
         const identity = '<div class="candidate-report-identity"><span class="candidate-report-drive">'+esc(data.driveName || 'Recruitment drive')+'</span><h3>'+esc(data.name || studentId)+'</h3><span>Student ID · '+esc(studentId)+'</span></div>';
         const body = '<div class="candidate-report-layout"><aside class="candidate-report-sidebar"><div class="candidate-sidebar-label">ASSESSMENT MODULES</div>'+modules+'</aside><div class="candidate-report-main">'+identity+'<div class="candidate-report-content">'+renderCandidateResponseSection(sections.find(section => section.type === candidateResponseActive))+'</div></div></div>';
-        dialog('Candidate performance report', body, '<button onclick="modal.close()">Close</button>', true);
+        dialog('Candidate performance report', body, '<button onclick="closeCandidateReport()">Close</button>', true);
+        modal.querySelector('.modal-head button').onclick=closeCandidateReport;
+        modal.addEventListener('cancel',candidateReportCancel);
         modal.classList.add('candidate-report', 'full-candidate-report');
         modal.querySelectorAll('.candidate-report-module').forEach(button => button.addEventListener('click', () => selectCandidateResponseModule(button.dataset.module)));
     } catch (e) { handleError(e); }
