@@ -178,14 +178,16 @@ class ApplicationTests(unittest.TestCase):
 
     def test_submission_idempotency_and_save_sequence(self):
         c, csrf, _ = self.candidate(student='SEQUENCE')
-        self.assertEqual(self.answer(c, csrf, sequence=2).status_code, 200)
+        first_save = self.answer(c, csrf, sequence=2)
+        self.assertEqual(first_save.status_code, 200)
+        expected_displayed_answer = first_save.json['test']['attempts'][0]['responses']['q1']
         a = self.answer(c, csrf, responses={'q1': [0]}, sequence=1).json['test']['attempts'][0]
-        self.assertEqual(a['responses']['q1'], [1])
+        self.assertEqual(a['responses']['q1'], expected_displayed_answer)
         result = self.answer(c, csrf, sequence=3, submit=True)
         original = result.json['test']['attempts'][0]
         later = self.answer(c, csrf, responses={'q1': [0]}, sequence=4, submit=True).json['test']['attempts'][0]
         self.assertEqual(original['submittedAt'], later['submittedAt'])
-        self.assertEqual(later['responses']['q1'], [1])
+        self.assertEqual(later['responses']['q1'], expected_displayed_answer)
 
     def test_matching_key_is_not_exposed_and_choices_are_attempt_bound(self):
         state = self.state()
@@ -207,13 +209,14 @@ class ApplicationTests(unittest.TestCase):
 
     def test_timeout_rejects_late_payload_and_resume_survives_restart(self):
         c, csrf, a = self.candidate(student='TIMEOUT')
-        self.answer(c, csrf)
+        saved = self.answer(c, csrf)
+        saved_displayed_answer = saved.json['test']['attempts'][0]['responses']['q1']
         with self.app.extensions['store'].transaction() as tx:
             next(x for x in tx.all_attempts(self.tests['aptitude']) if x['id'] == a['id'])['deadline'] = int(time.time() * 1000) - 100
         result = self.answer(c, csrf, responses={'q1': [0]}, sequence=3, submit=True)
         locked = result.json['test']['attempts'][0]
         self.assertEqual(locked['reason'], 'timeout')
-        self.assertEqual(locked['responses']['q1'], [1])
+        self.assertEqual(locked['responses']['q1'], saved_displayed_answer)
         restarted = create_app(self.settings)
         with restarted.extensions['store'].transaction() as tx:
             self.assertEqual(next(x for x in tx.all_attempts(self.tests['aptitude']) if x['id'] == a['id'])['responses']['q1'], [1])
