@@ -23,7 +23,7 @@ from werkzeug.security import check_password_hash
 from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
-from exports import excel, final_excel, filename, results_rows, words, gd_excel
+from exports import excel, final_excel, filename, results_rows, words, gd_excel, language_parts
 from store import Store, attempts, login_limits, now_ms
 
 
@@ -472,7 +472,7 @@ def create_app(settings=None):
             test = test_required(tx, test_id)
             require(test['type'] != 'prompt', 'Prompt Engineering is evaluated separately.')
             tx.expire(test_id)
-            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(data))
+            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(data), filters=data if test['type'] == 'aptitude' else None)
             changed, skipped = 0, 0
             for a, g, _ in rows:
                 if data.get('attemptId') and a['id'] != data['attemptId']:
@@ -679,7 +679,7 @@ def create_app(settings=None):
             candidates[key] = {'studentKey': key, 'name': member['name'], 'studentId': member['studentId'],
                                'aptitudeScore': None, 'aptitudeShortlisted': False,
                                'gdScore': scores.get('total'), 'gdRecommended': scores.get('shortlisted') is True,
-                               'languageScore': None, 'promptScore': None,
+                               'languageScore': None, 'reasoningScore': None, 'promptScore': None,
                                'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none',
                                '_latest': {}}
         decisions = drive.get('finalDecisions', {})
@@ -688,7 +688,7 @@ def create_app(settings=None):
                 key = student_key(attempt['studentId'])
                 row = candidates.setdefault(key, {'studentKey': key, 'name': attempt['name'], 'studentId': attempt['studentId'],
                             'aptitudeScore': None, 'aptitudeShortlisted': False, 'gdScore': None, 'gdRecommended': False,
-                            'languageScore': None, 'promptScore': None, 'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none', '_latest': {}})
+                            'languageScore': None, 'reasoningScore': None, 'promptScore': None, 'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none', '_latest': {}})
                 if attempt.get('startedAt', 0) >= row.get('_latest_name', -1):
                     row['name'], row['studentId'], row['_latest_name'] = attempt['name'], attempt['studentId'], attempt.get('startedAt', 0)
                 if test['type'] not in {'aptitude', 'language', 'prompt'}:
@@ -702,7 +702,7 @@ def create_app(settings=None):
                     row['aptitudeScore'] = grade(test['questions'], attempt)['total'] if attempt.get('submittedAt') else None
                     row['aptitudeShortlisted'] = attempt.get('shortlisted') is True
                 elif test['type'] == 'language':
-                    row['languageScore'] = grade(test['questions'], attempt)['total'] if attempt.get('submittedAt') else None
+                    row['languageScore'], row['reasoningScore'] = language_parts(test, grade(test['questions'], attempt)) if attempt.get('submittedAt') else (None, None)
                 else:
                     row['promptScore'] = attempt.get('promptScore')
         for key, row in candidates.items():
@@ -796,7 +796,11 @@ def create_app(settings=None):
                 if kind == 'prompt':
                     sections.append({'type': kind, 'title': titles[kind], 'maxScore': maximums[kind],
                                      'hasAttempt': True, 'submittedAt': attempt.get('submittedAt'),
-                                     'response': attempt.get('answer', ''), 'score': attempt.get('promptScore')})
+                                     'response': '\n\n'.join(
+                                         (q.get('text', '') + '\n\n' if len(test['questions']) > 1 else '') +
+                                         str(attempt.get('responses', {}).get(q['id']) or '')
+                                         for q in test['questions']).strip() or attempt.get('answer', ''),
+                                     'score': attempt.get('promptScore')})
                     continue
                 graded = grade(test['questions'], attempt)
                 result_by_id = {item['id']: item for item in graded['results']}
@@ -893,8 +897,13 @@ def create_app(settings=None):
             selected = {student_key(clean_text(value, 60, 'student ID')) for value in data['studentIds']}
             rows = [row for row in final_score_rows(tx, drive_id) if row['studentKey'] in selected]
             require(rows, 'No candidates match the current filters.')
+            mode = data.get('mode', 'all')
+            require(mode in {'all', 'interview'}, 'Invalid export option.')
+            if mode == 'interview':
+                rows = [row for row in rows if row.get('interviewShortlisted')]
+            require(rows, 'No interview-shortlisted candidates in the current view.')
             payload = final_excel(drive, rows)
-            name = filename(drive['name'] + '_final_scores') + '.xlsx'
+            name = filename(drive['name'] + ('_interview_shortlist' if mode == 'interview' else '_final_scores')) + '.xlsx'
         return send_file(io.BytesIO(payload), as_attachment=True, download_name=name,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -925,7 +934,7 @@ def create_app(settings=None):
             test = test_required(tx, test_id)
             require(test['type'] != 'prompt', 'Use the Word document export for Prompt Engineering.')
             tx.expire(test_id)
-            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(request.args))
+            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(request.args), filters=request.args if test['type'] == 'aptitude' else None)
             require(rows, 'No candidates match the filters.')
             drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
             payload = excel(drive, test, rows)

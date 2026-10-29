@@ -6,7 +6,7 @@ assert(!script.includes('IMPORTED_QUESTIONS'));
 assert(!script.includes('DEFAULT_QUESTION='));
 const elements=new Map();
 const node=()=>({innerHTML:'',textContent:'',value:'',style:{},hidden:true,className:'',open:false,scrollTop:0,
- classList:{add(){},remove(){},toggle(){}},remove(){},addEventListener(){},removeEventListener(){},showModal(){this.open=true},close(){this.open=false},querySelector(){return {disabled:false}}});
+ classList:{add(){},remove(){},toggle(){}},remove(){},addEventListener(){},removeEventListener(){},querySelectorAll(){return[]},setAttribute(){},matches(){return false},showPopover(){this.popoverVisible=true},hidePopover(){this.popoverVisible=false},showModal(){this.open=true},close(){this.open=false},querySelector(){return {disabled:false}}});
 const document={addEventListener(){},removeEventListener(){},querySelector(s){if(!elements.has(s))elements.set(s,node());return elements.get(s)},querySelectorAll(){return[]}};
 const initial={drives:[],sessions:[],questionSets:{aptitude:[],language:[],prompt:[]}};
 let saved=structuredClone(initial),revision=0;
@@ -49,8 +49,8 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run('currentQuiz().a.sequence'),4);
  assert.equal(run('currentQuiz().a.responses.q1[0]'),1);
  run("view='sessions';responseSession='c1';openResultsTable('c1')");
- assert(document.querySelector('#modal').innerHTML.includes('Min marks (out of 30)'));
- assert(document.querySelector('#modal').innerHTML.includes('Min time (minutes) (out of 15)'));
+ assert(document.querySelector('#modal').innerHTML.includes('Marks (out of 30)'));
+ assert(document.querySelector('#modal').innerHTML.includes('Time (minutes, out of 15)'));
  assert(document.querySelector('#modal').innerHTML.includes('Revert shortlisting'));
  assert(!document.querySelector('#responseTable').innerHTML.includes('shortlist-check'));
  run("state.sessions[0].type='language';openResultsTable('c1')");
@@ -152,6 +152,34 @@ const run=code=>vm.runInContext(code,context);
  run("globalThis.partsQuestions=Array.from({length:25},(_,i)=>({id:'part-'+i}));globalThis.partsResults=partsQuestions.map((q,i)=>({id:q.id,score:i<20?1:0.5})).reverse()");
  assert.equal(run("languageScoreParts({questions:partsQuestions},{results:partsResults}).join(',')"),'20,2.5');
  run("reloadAdmin=savedReloadAdmin;finalDriveCurrent='d1';");
+
+ // Response comparisons, front-layer alerts, report content and return navigation.
+ assert.equal(run("responseNumberMatches(12,'lt','15','')"),true);
+ assert.equal(run("responseNumberMatches(15,'lt','15','')"),false);
+ assert.equal(run("responseNumberMatches(12,'between','10','12')"),true);
+ assert.equal(run("responseNumberMatches(null,'blank','','')"),true);
+ assert.equal(run("responseNumberMatches(0,'notblank','','')"),true);
+ const controls=run("responseFilterControl('minMarks','Marks',true)");
+ assert(controls.includes('Less than or equal to')&&controls.includes('Between'));
+ assert(controls.includes('changeResponseOperator(this.dataset.filterKey,this.value)'));
+ run("showCandidateInstructions({name:'Candidate',studentId:'ID'})");
+ assert(!document.querySelector('#modal').innerHTML.includes('does not record tab changes'));
+ assert(!document.querySelector('#modal').innerHTML.includes('administrator stop'));
+ assert(document.querySelector('#modal').innerHTML.includes('all filled responses will be saved'));
+ run("toast('Duplicate student ID')");
+ assert.equal(document.querySelector('#toast').popoverVisible,true);
+ const tableReport=run("renderCandidateResponseSection({type:'language',hasAttempt:true,title:'Language',maxScore:25,score:1,questions:[{text:'Question',table:[['Stall','Cost'],['<Momos>',50]],choices:[]}]})");
+ assert(tableReport.includes('<table>')&&tableReport.includes('<th scope="col">Stall</th>'));
+ assert(tableReport.includes('&lt;Momos&gt;')&&!tableReport.includes('<pre'));
+ assert(run("renderCandidateResponseSection({type:'prompt',hasAttempt:true,title:'Prompt',maxScore:10,score:9,response:'My full prompt'})").includes('My full prompt'));
+ context.fetch=async()=>({ok:true,json:async()=>({name:'Report Candidate',driveName:'Review drive',sections:[{type:'aptitude',title:'Aptitude',maxScore:30,score:2,hasAttempt:true,questions:[]}]})});
+ run("finalInterviewDrafts={};modal.innerHTML='ORIGINAL FINAL SCORES';modal.className='results-dialog final-scores-dialog';modal.open=true;finalScoreFilters['review-drive']={gdScore:{op:'gte',value:10}};");
+ await run("openCandidateResponses('review-drive','REVIEW-ID')");
+ assert(document.querySelector('#modal').innerHTML.includes('Candidate performance report'));
+ run("closeCandidateReport()");
+ assert.equal(document.querySelector('#modal').innerHTML,'ORIGINAL FINAL SCORES');
+ assert.equal(run("finalScoreFilters['review-drive'].gdScore.value"),10);
+ assert.equal(document.querySelector('#modal').open,true);
 
  // Export and bulk shortlist resolve the same filtered candidate IDs.
  let finalRequest;

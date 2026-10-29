@@ -458,6 +458,68 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(decision['interviewRemarks'], '')
         self.assertFalse(decision['interviewManual'])
 
+    def test_response_comparisons_apply_to_shortlist_and_excel(self):
+        from urllib.parse import urlencode
+        headers = {'X-CSRF-Token': self.csrf}
+        for index, score in enumerate((10, 20, 30)):
+            client, csrf, attempt = self.candidate(student=f'FILTER-{index}')
+            self.answer(client, csrf, submit=True)
+            with self.app.extensions['store'].transaction() as tx:
+                stored = next(a for a in tx.all_attempts(self.tests['aptitude']) if a['id'] == attempt['id'])
+                stored['importedScore'] = score
+                stored['importedElapsedMinutes'] = index + 1
+        filters = {'marksOp': 'between', 'minMarks': 10, 'maxMarks': 20,
+                   'timeOp': 'lte', 'minTime': 2}
+        url = f'/api/admin/tests/{self.tests["aptitude"]}'
+        result = self.admin.post(url + '/shortlist', json={**filters, 'value': True}, headers=headers)
+        self.assertEqual(result.status_code, 200, result.json)
+        attempts = self.state()['state']['sessions'][0]['attempts']
+        self.assertEqual({a['studentId'] for a in attempts if a['studentId'].startswith('FILTER-') and a.get('shortlisted')},
+                         {'FILTER-0', 'FILTER-1'})
+        exported = self.admin.get(url + '/excel?' + urlencode(filters))
+        self.assertEqual(exported.status_code, 200)
+        sheet = load_workbook(io.BytesIO(exported.data)).active
+        self.assertEqual({sheet.cell(i, 3).value for i in range(2, sheet.max_row + 1)}, {'FILTER-0', 'FILTER-1'})
+        for op, expected in [('gt', ['FILTER-2']), ('lt', ['FILTER-0']), ('eq', ['FILTER-1'])]:
+            params = {'marksOp': op, 'minMarks': 20}
+            book = load_workbook(io.BytesIO(self.admin.get(url + '/excel?' + urlencode(params)).data))
+            actual = [row[2] for row in book.active.iter_rows(min_row=2, values_only=True) if str(row[2]).startswith('FILTER-')]
+            self.assertEqual(actual, expected)
+        bad = self.admin.get(url + '/excel?' + urlencode({'marksOp': 'between', 'minMarks': 20, 'maxMarks': 10}))
+        self.assertEqual(bad.status_code, 400)
+
+    def test_performance_report_prompt_and_split_final_scores(self):
+        headers = {'X-CSRF-Token': self.csrf}
+        client, csrf, _ = self.candidate('prompt', student='GD-SEED')
+        self.answer(client, csrf, kind='prompt', responses={'q1': 'Role: analyst. Explain the result clearly.\nUse examples.'}, submit=True)
+        report = self.admin.get(f'/api/admin/drives/{self.drive}/candidate-responses?studentId=GD-SEED')
+        self.assertEqual(report.status_code, 200, report.json)
+        prompt = next(s for s in report.json['sections'] if s['type'] == 'prompt')
+        self.assertIn('Role: analyst.', prompt['response'])
+        self.assertIn('Use examples.', prompt['response'])
+        current = self.state()
+        language = next(s for s in current['state']['sessions'] if s['type'] == 'language')
+        language['questions'] = [{**question(), 'id': f'q{i}', 'correctScore': 1, 'wrongScore': 0} for i in range(25)]
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        language_client, language_csrf, attempt = self.candidate('language', student='GD-SEED')
+        with self.app.extensions['store'].transaction() as tx:
+            stored = next(a for a in tx.all_attempts(self.tests['language']) if a['id'] == attempt['id'])
+            stored['responses'] = {f'q{i}': [1] for i in range(25)}
+            stored['submittedAt'] = int(time.time() * 1000)
+        self.admin.post(f'/api/admin/drives/{self.drive}/final-shortlist', json={'studentIds': ['GD-SEED'], 'value': True}, headers=headers)
+        exported = self.admin.post(f'/api/admin/drives/{self.drive}/final/export',
+                                   json={'studentIds': ['GD-SEED'], 'mode': 'interview'}, headers=headers)
+        self.assertEqual(exported.status_code, 200)
+        sheet = load_workbook(io.BytesIO(exported.data)).active
+        values = dict(zip([cell.value for cell in sheet[1]], [cell.value for cell in sheet[2]]))
+        self.assertEqual(values['Language score (20)'], 20)
+        self.assertEqual(values['Reasoning score (5)'], 5)
+        self.assertEqual(values['Interview shortlisted'], 'Yes')
+        self.admin.post(f'/api/admin/drives/{self.drive}/final-shortlist', json={'studentIds': ['GD-SEED'], 'value': False}, headers=headers)
+        empty = self.admin.post(f'/api/admin/drives/{self.drive}/final/export',
+                               json={'studentIds': ['GD-SEED'], 'mode': 'interview'}, headers=headers)
+        self.assertEqual(empty.status_code, 400)
+
     def test_language_component_scores_use_original_question_ids(self):
         from exports import language_parts
         questions = [{'id': f'q{i}'} for i in range(25)]
