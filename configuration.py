@@ -17,6 +17,14 @@ def opaque_id(value):
 
 def update_configuration(tx, incoming):
     require(isinstance(incoming, dict), "Invalid configuration.")
+    existing_durations = tx.state.get("durations", {})
+    requested_durations = incoming.get("durations", {})
+    require(isinstance(requested_durations, dict), "Invalid test durations.")
+    durations = {}
+    for kind, default in DURATIONS.items():
+        value = requested_durations.get(kind, existing_durations.get(kind, default))
+        require(type(value) is int and 1 <= value <= 180, "Test durations must be whole minutes from 1 to 180.")
+        durations[kind] = value
     defaults = incoming.get("questionSets")
     require(isinstance(defaults, dict) and set(defaults) == set(DURATIONS), "Provide all three question sections.")
     defaults = {kind: questions_validated(items, kind) for kind, items in defaults.items()}
@@ -70,13 +78,17 @@ def update_configuration(tx, incoming):
             require(not old.get("closedAt") or s.get("closedAt"), "A finished test cannot reopen.")
             item = copy.deepcopy(old)
             item["questions"] = qs
+            item.setdefault("durationMinutes", durations[kind])
+            if not tx.all_attempts(sid) and not old.get("closedAt"):
+                item["durationMinutes"] = durations[kind]
         else:
             require(not by_drive[did].get("finishedAt"), "Cannot add tests to a finished drive.")
-            item = {"id": sid, "driveId": did, "type": kind, "start": now_ms(), "closedAt": None, "questions": qs}
+            item = {"id": sid, "driveId": did, "type": kind, "start": now_ms(), "closedAt": None,
+                    "durationMinutes": durations[kind], "questions": qs}
         item["name"] = by_drive[did]["name"] + " · " + {"aptitude": "Aptitude", "language": "Language & Reasoning", "prompt": "Prompt Engineering"}[kind]
         if s.get("closedAt") or by_drive[did].get("finishedAt"):
             tx.stop(item)
         output_tests.append(item)
     require(set(old_tests) <= test_ids, "Existing test links cannot be deleted.")
-    tx.state.update(drives=output_drives, sessions=output_tests, questionSets=defaults)
+    tx.state.update(drives=output_drives, sessions=output_tests, questionSets=defaults, durations=durations)
 

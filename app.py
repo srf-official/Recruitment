@@ -275,15 +275,31 @@ def create_app(settings=None):
 
     def candidate_payload(test, attempt=None):
         public = {k: test[k] for k in ('id', 'type', 'name', 'driveId', 'closedAt')}
-        public['durationMinutes'] = DURATIONS[test['type']]
+        public['durationMinutes'] = test.get('durationMinutes', DURATIONS[test['type']])
         public['questionCount'] = len(test['questions'])
         if attempt is not None:
             signer = lambda qid, i: matching_token(test['id'], attempt['id'], qid, i)
-            public['questions'] = public_questions(test['questions'], signer)
-            candidate = {k: copy.deepcopy(v) for k, v in attempt.items() if k not in {'manualMarks', 'shortlisted', 'promptScore'}}
+            by_id = {q['id']: q for q in test['questions']}
+            order = attempt.get('questionOrder') or [q['id'] for q in test['questions']]
+            ordered = [by_id[qid] for qid in order if qid in by_id]
+            ordered.extend(q for q in test['questions'] if q['id'] not in set(order))
+            public['questions'] = public_questions(ordered, signer)
+            option_order = attempt.get('optionOrder', {})
+            for q in public['questions']:
+                permutation = option_order.get(q['id'])
+                if permutation and q.get('options') and len(permutation) == len(q['options']):
+                    q['options'] = [q['options'][i] for i in permutation]
+            candidate = {k: copy.deepcopy(v) for k, v in attempt.items()
+                         if k not in {'manualMarks', 'shortlisted', 'promptScore', 'questionOrder', 'optionOrder'}}
             for q in test['questions']:
                 if q['type'] == 'matching' and q['id'] in candidate['responses']:
                     candidate['responses'][q['id']] = [None if i is None else signer(q['id'], i) for i in candidate['responses'][q['id']]]
+                elif q.get('options') and q['id'] in candidate['responses']:
+                    permutation = option_order.get(q['id']) or list(range(len(q['options'])))
+                    display_index = {original: display for display, original in enumerate(permutation)}
+                    response = candidate['responses'][q['id']]
+                    if isinstance(response, list):
+                        candidate['responses'][q['id']] = [display_index[i] for i in response if type(i) is int and i in display_index]
             public['attempts'] = [candidate]
         else:
             public['questions'], public['attempts'] = [], []
@@ -343,9 +359,30 @@ def create_app(settings=None):
             key = student_key(student)
             require(not any(student_key(a['studentId']) == key for a in tx.all_attempts(test_id)), 'This student ID already has an attempt. Use the original browser to continue.')
             token, now = secrets.token_urlsafe(48), now_ms()
+            duration = test.get('durationMinutes', DURATIONS[test['type']])
+            question_order = [q['id'] for q in test['questions']]
+            option_order = {}
+            rng = secrets.SystemRandom()
+            if test['type'] == 'aptitude':
+                rng.shuffle(question_order)
+                shuffle_options = set(question_order)
+            elif test['type'] == 'language':
+                language_count = min(20, len(question_order))
+                first_questions = question_order[:language_count]
+                rng.shuffle(first_questions)
+                question_order = first_questions + question_order[language_count:]
+                shuffle_options = set(first_questions)
+            else:
+                shuffle_options = set()
+            for q in test['questions']:
+                if q['id'] in shuffle_options and q.get('options') and q['type'] in {'single', 'multiple', 'boolean', 'ranking'}:
+                    permutation = list(range(len(q['options'])))
+                    rng.shuffle(permutation)
+                    option_order[q['id']] = permutation
             a = {'id': str(uuid.uuid4()), 'name': name, 'studentId': student, 'startedAt': now,
-                 'deadline': now + DURATIONS[test['type']] * 60000, 'responses': {}, 'sequence': 0,
-                 'submittedAt': None, 'reason': None, 'manualMarks': {}, 'shortlisted': False}
+                 'deadline': now + duration * 60000, 'responses': {}, 'sequence': 0,
+                 'submittedAt': None, 'reason': None, 'manualMarks': {}, 'shortlisted': False,
+                 'questionOrder': question_order, 'optionOrder': option_order}
             tx.add_attempt(test_id, a, hashlib.sha256(key.encode()).hexdigest(), hashlib.sha256(token.encode()).hexdigest())
             response = jsonify(candidate_payload(test, a))
             response.set_cookie('attempt_' + test_id, token, httponly=True, secure=not local,
@@ -366,12 +403,18 @@ def create_app(settings=None):
                 if sequence > a['sequence']:
                     responses = copy.deepcopy(data.get('responses', {}))
                     require(isinstance(responses, dict), 'Invalid response object.')
+                    option_order = a.get('optionOrder', {})
                     for q in test['questions']:
                         if q['type'] == 'matching' and q['id'] in responses:
                             tokens = {matching_token(test['id'], a['id'], q['id'], i): i for i in range(len(q['pairs']))}
                             values = responses[q['id']]
                             require(isinstance(values, list) and all(v is None or isinstance(v, str) and v in tokens for v in values), 'Invalid matching choice.')
                             responses[q['id']] = [None if v is None else tokens[v] for v in values]
+                        elif q.get('options') and q['id'] in responses:
+                            permutation = option_order.get(q['id']) or list(range(len(q['options'])))
+                            values = responses[q['id']]
+                            require(isinstance(values, list) and all(type(v) is int and 0 <= v < len(permutation) for v in values), 'Invalid option choice.')
+                            responses[q['id']] = [permutation[v] for v in values]
                     a['responses'] = responses_validated(test['questions'], responses)
                     a['sequence'] = sequence
                 if data.get('submit') is True:
