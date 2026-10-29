@@ -149,3 +149,20 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
  .shell.overview-shell>.workspace{height:auto;min-height:0;overflow:visible}
  .score-distribution-labels{justify-content:flex-start;gap:7px 12px}
 }
+/* Keep the admin navigation fixed while the selected page scrolls. */
+@media(min-width:661px){
+ body:has(.shell){height:100dvh;overflow:hidden}
+ .shell{height:calc(100dvh - 78px);min-height:0;overflow:hidden}
+ .shell>.app-sidebar{position:relative;top:auto;align-self:stretch;height:100%;min-height:0}
+ .shell>.workspace{height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+ .shell .main{min-height:0}
+}
+.duration-editor{display:grid;gap:8px;margin:18px 0}
+.duration-editor label{font-size:13px;font-weight:600;color:#526873}
+.duration-editor .row{align-items:center;gap:8px}
+.duration-editor input{width:130px;min-height:40px}
+.formatted-question{margin:16px 0 20px;line-height:1.65}
+.formatted-question>p{margin:0 0 12px}
+.formatted-question .question-sentence{margin:8px 0;padding:10px 14px;border-left:3px solid #009688;border-radius:0 8px 8px 0;background:#f1f8f7}
+.formatted-question .question-sentence strong{margin-right:5px;color:#007f78}
+.formatted-question h3{margin:16px 0 0}
