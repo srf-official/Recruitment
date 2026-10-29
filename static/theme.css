@@ -194,3 +194,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 #final-score-content th:nth-child(11){width:155px}
 #final-score-content th:nth-child(12){width:190px}
 #final-score-content th:nth-child(13){width:145px}
+
+.shell .drive[open]{border:2px solid #009688;box-shadow:0 0 0 3px rgba(0,150,136,.12)}
+.final-scores-table td{padding-block:8px}
+.final-scores-table .interview-remarks textarea{height:36px;min-height:36px;max-height:72px;padding:6px 8px}
+.final-scores-table .interviewer-select{min-width:130px;max-width:170px}
+
+.candidate-report .modal-body{max-height:72vh;overflow:auto}.candidate-report-section{border:1px solid #dbe6e8;border-radius:12px;padding:18px;margin:16px 0;background:#fff}.candidate-report-question{border-top:1px solid #e7eef0;padding:14px 0}.candidate-report-question dl{display:grid;grid-template-columns:150px 1fr;gap:6px 14px}.candidate-report-question dt{font-weight:600}.candidate-report-question dd{margin:0;white-space:pre-wrap}.candidate-report-question pre{white-space:pre-wrap}

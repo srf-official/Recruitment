@@ -39,6 +39,9 @@ def questions_validated(items, kind):
         require(q["type"] in FORMATS, "Unsupported question type.")
         q["text"] = clean_text(source.get("text"), 100000, "question")
         require(q["text"], "Question text is required.")
+        if kind == "aptitude":
+            difficulty = clean_text(source.get("difficulty", "Medium"), 20, "difficulty") or "Medium"
+            require(difficulty in {"Easy", "Medium", "Hard"}, "Choose an Aptitude difficulty level.")
         for name in ("context", "source", "referenceAnswer", "reviewNote"):
             if name in source:
                 q[name] = clean_text(source[name], 100000, name)
@@ -82,7 +85,7 @@ def questions_validated(items, kind):
 def public_questions(questions, match_token=None):
     output = []
     for q in questions:
-        public = {k: copy.deepcopy(v) for k, v in q.items() if k not in {"key", "referenceAnswer", "reviewNote", "pairs"}}
+        public = {k: copy.deepcopy(v) for k, v in q.items() if k not in {"key", "referenceAnswer", "reviewNote", "pairs", "difficulty"}}
         if q['type'] == 'matching':
             require(match_token is not None, 'Matching requires an attempt context.')
             public['leftItems'] = [p['left'] for p in q['pairs']]
