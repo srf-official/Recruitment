@@ -6,8 +6,8 @@ assert(!script.includes('IMPORTED_QUESTIONS'));
 assert(!script.includes('DEFAULT_QUESTION='));
 const elements=new Map();
 const node=()=>({innerHTML:'',textContent:'',value:'',style:{},hidden:true,className:'',open:false,scrollTop:0,
- classList:{add(){},remove(){},toggle(){}},showModal(){this.open=true},close(){this.open=false},querySelector(){return {disabled:false}}});
-const document={querySelector(s){if(!elements.has(s))elements.set(s,node());return elements.get(s)},querySelectorAll(){return[]}};
+ classList:{add(){},remove(){},toggle(){}},remove(){},addEventListener(){},removeEventListener(){},showModal(){this.open=true},close(){this.open=false},querySelector(){return {disabled:false}}});
+const document={addEventListener(){},removeEventListener(){},querySelector(s){if(!elements.has(s))elements.set(s,node());return elements.get(s)},querySelectorAll(){return[]}};
 const initial={drives:[],sessions:[],questionSets:{aptitude:[],language:[],prompt:[]}};
 let saved=structuredClone(initial),revision=0;
 const fetch=async(path,options={})=>{
@@ -122,6 +122,37 @@ const run=code=>vm.runInContext(code,context);
  assert(run("FINAL_COLUMNS.findIndex(c=>c[0]==='interviewShortlisted') < FINAL_COLUMNS.findIndex(c=>c[0]==='promptScore')"));
  assert(!run("finalHeader()").includes('<select'));
  assert(run("finalHeader()").includes('aria-haspopup="dialog"'));
+
+ // The aptitude matrix filters marks and stages manual decisions until Save updates.
+ run("globalThis.savedReloadAdmin=reloadAdmin;reloadAdmin=async()=>{};state.drives=[{id:'review-drive',name:'Review drive',gd:{pools:[{members:['review-id'],evaluatorName:'Pool Evaluator'}]}}];state.sessions=[{id:'review-test',driveId:'review-drive',type:'aptitude',questions:[{id:'hard',type:'single',text:'A difficult question?',options:['Correct','Wrong'],key:[0],correctScore:2,wrongScore:0}],attempts:[{id:'review-attempt',name:'Review Candidate',studentId:'REVIEW-ID',submittedAt:60001,startedAt:1,responses:{hard:[0]},shortlisted:false}]}]");
+ await run("openAptitudeReview('review-test')");
+ assert(document.querySelector('#aptitude-review-content').innerHTML.includes('A difficult question?'));
+ run("draftAptitudeReview('review-attempt','shortlisted',true)");
+ assert.equal(run('validateAptitudeReview()'),false);
+ assert.equal(document.querySelector('#save-aptitude-review').disabled,true);
+ run("draftAptitudeReview('review-attempt','remarks','Solved the hardest question.')");
+ assert.equal(run('validateAptitudeReview()'),true);
+ assert.equal(run("state.sessions[0].attempts[0].shortlisted"),false);
+ let manualRequest;
+ context.fetch=async(path,options={})=>{manualRequest={path,body:JSON.parse(options.body)};return {ok:true,json:async()=>({changed:1})};};
+ await run("saveAptitudeReview()");
+ assert.equal(manualRequest.body.changes[0].remarks,'Solved the hardest question.');
+ assert.equal(manualRequest.body.changes[0].shortlisted,true);
+ run("aptitudeReviewFilters={marks:{op:'gte',value:2},minutes:{op:'lte',value:1}}");
+ assert.equal(run('aptitudeReviewRows().length'),1);
+ run("aptitudeReviewFilters.marks.value=3");
+ assert.equal(run('aptitudeReviewRows().length'),0);
+ run("state.sessions[0].attempts[0].shortlisted=true");
+ await run("showFinalScores('review-drive')");
+ assert.equal(run("finalScoreFilters['review-drive'].aptitudeShortlisted.values[0]"),'Yes');
+ assert(document.querySelector('#modal').innerHTML.includes('Pool Evaluator'));
+ assert(document.querySelector('#modal').innerHTML.includes('Interview shortlist remarks'));
+ run("finalScoreFilters['review-drive']={};rerenderFinalTable()");
+ assert.equal(run("Object.keys(finalScoreFilters['review-drive']).length"),0);
+ run("globalThis.partsQuestions=Array.from({length:25},(_,i)=>({id:'part-'+i}));globalThis.partsResults=partsQuestions.map((q,i)=>({id:q.id,score:i<20?1:0.5})).reverse()");
+ assert.equal(run("languageScoreParts({questions:partsQuestions},{results:partsResults}).join(',')"),'20,2.5');
+ run("reloadAdmin=savedReloadAdmin;finalDriveCurrent='d1';");
+
  // Export and bulk shortlist resolve the same filtered candidate IDs.
  let finalRequest;
  context.fetch=async(path,options={})=>{
@@ -132,7 +163,7 @@ const run=code=>vm.runInContext(code,context);
  await run("shortlistFilteredFinal()");
  assert.deepEqual(finalRequest.body.studentIds,['1','2']);
  assert.equal(finalRequest.body.value,true);
- run("postDownload=(path,body)=>{globalThis.lastExport={path,body}};exportFinalScores()");
+ await run("postDownload=(path,body)=>{globalThis.lastExport={path,body}};exportFinalScores()");
  assert.equal(run("lastExport.body.studentIds.join(',')"),'1,2');
  await run("revertFilteredFinal()");
  assert.deepEqual(finalRequest.body.studentIds,['1','2']);

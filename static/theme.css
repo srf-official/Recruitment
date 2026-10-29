@@ -166,3 +166,31 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .formatted-question .question-sentence{margin:8px 0;padding:10px 14px;border-left:3px solid #009688;border-radius:0 8px 8px 0;background:#f1f8f7}
 .formatted-question .question-sentence strong{margin-right:5px;color:#007f78}
 .formatted-question h3{margin:16px 0 0}
+
+/* GD exports and candidate review controls. */
+.gd-export-actions{flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.shortlist-remarks{min-width:180px;max-width:360px;white-space:pre-wrap;overflow-wrap:anywhere}
+.aptitude-review-dialog{width:min(97vw,1900px);max-width:97vw}
+.aptitude-review-dialog #aptitude-review-content{flex:1;min-height:0}
+.aptitude-review-table{width:max-content;min-width:100%;table-layout:fixed}
+.aptitude-review-table th,.aptitude-review-table td{min-width:150px;max-width:260px;padding:14px 16px}
+.aptitude-review-table thead th{position:sticky;top:0;z-index:1;background:#eff6f8;vertical-align:top}
+.aptitude-review-table .aptitude-question-heading{width:260px;min-width:260px;max-width:260px;text-transform:none;letter-spacing:0;white-space:normal}
+.aptitude-question-heading>span{display:block;margin-bottom:8px;color:#008781;font-weight:700}
+.aptitude-question-heading>div{max-height:180px;overflow-y:auto;white-space:pre-wrap;font-size:12px;line-height:1.5}
+.aptitude-review-remarks,.interview-remarks textarea{min-width:210px;width:100%;min-height:64px;resize:vertical;padding:9px 10px;font:inherit;border:1px solid #d5e3e5;border-radius:8px;background:#fff}
+.final-scores-table{min-width:2300px!important}
+.final-scores-table .interview-remarks{min-width:260px;width:260px}
+.interview-remarks .small{margin-top:5px;padding:5px 10px;font-size:11px}
+.interviewer-input{min-width:170px;width:100%;max-width:230px;min-height:38px;border:1px solid #d5e3e5;border-radius:8px;padding:8px 10px;font:inherit}
+.final-scores-table .final-status-select{min-width:116px;max-width:160px}
+.aptitude-review-table .final-header-filter{width:100%;min-height:42px}
+.aptitude-review-dialog .results-header .inline-error{margin-bottom:0}
+
+#final-score-content th:nth-child(7){width:165px}
+#final-score-content th:nth-child(8){width:170px}
+#final-score-content th:nth-child(9){width:130px}
+#final-score-content th:nth-child(10){width:260px}
+#final-score-content th:nth-child(11){width:155px}
+#final-score-content th:nth-child(12){width:190px}
+#final-score-content th:nth-child(13){width:145px}

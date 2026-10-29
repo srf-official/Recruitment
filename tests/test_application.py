@@ -313,6 +313,98 @@ class ApplicationTests(unittest.TestCase):
         print(f'50-client durable-store concurrency test completed in {time.monotonic()-begin:.2f}s')
 
 
+    def test_manual_aptitude_shortlist_requires_remarks_and_is_atomic(self):
+        client, csrf, attempt = self.candidate(student='MANUAL')
+        self.answer(client, csrf, responses={'q1': [0]}, submit=True)
+        url = f'/api/admin/tests/{self.tests["aptitude"]}/manual-shortlist'
+        headers = {'X-CSRF-Token': self.csrf}
+        change = {'attemptId': attempt['id'], 'shortlisted': True, 'remarks': ''}
+        self.assertEqual(self.admin.post(url, json={'changes': [change]}, headers=headers).status_code, 400)
+        change['remarks'] = 'Solved the difficult question with a strong approach.'
+        invalid = {'attemptId': 'missing', 'shortlisted': True, 'remarks': 'Invalid candidate'}
+        self.assertEqual(self.admin.post(url, json={'changes': [change, invalid]}, headers=headers).status_code, 400)
+        stored = next(a for a in self.state()['state']['sessions'][0]['attempts'] if a['id'] == attempt['id'])
+        self.assertFalse(stored['shortlisted'])
+        self.assertEqual(self.admin.post(url, json={'changes': [change]}, headers=headers).status_code, 200)
+        stored = next(a for a in self.state()['state']['sessions'][0]['attempts'] if a['id'] == attempt['id'])
+        self.assertTrue(stored['shortlisted'])
+        self.assertTrue(stored['manualShortlisted'])
+        self.assertEqual(stored['shortlistRemarks'], change['remarks'])
+        public = client.get('/api/candidate/' + self.tests['aptitude']).json
+        self.assertNotIn('shortlistRemarks', json.dumps(public))
+        change.update(shortlisted=False, remarks='')
+        self.assertEqual(self.admin.post(url, json={'changes': [change]}, headers=headers).status_code, 200)
+        stored = next(a for a in self.state()['state']['sessions'][0]['attempts'] if a['id'] == attempt['id'])
+        self.assertFalse(stored['shortlisted'])
+        self.assertEqual(stored['shortlistRemarks'], '')
+
+    def test_gd_random_allocation_and_both_workbook_exports(self):
+        from unittest.mock import patch
+        headers = {'X-CSRF-Token': self.csrf}
+        for number in range(6):
+            client, csrf, _ = self.candidate(name=f'Candidate {number}', student=f'POOL-{number}')
+            self.answer(client, csrf, submit=True)
+        self.admin.post(f'/api/admin/tests/{self.tests["aptitude"]}/shortlist', json={}, headers=headers)
+        with self.app.extensions['store'].transaction() as tx:
+            expected = [a['studentId'].casefold() for a in tx.all_attempts(self.tests['aptitude']) if a.get('shortlisted')]
+        with patch('app.secrets.SystemRandom') as rng:
+            rng.return_value.shuffle.side_effect = lambda roster: roster.reverse()
+            result = self.admin.post(f'/api/admin/drives/{self.drive}/gd/pools', json={'poolSize': 3}, headers=headers)
+            rng.return_value.shuffle.assert_called_once()
+        self.assertEqual(result.status_code, 200, result.json)
+        gd = result.json['gd']
+        self.assertEqual([key for pool in gd['pools'] for key in pool['members']], list(reversed(expected)))
+        self.assertTrue(all(len(pool['members']) <= 10 for pool in gd['pools']))
+        url = f'/api/admin/drives/{self.drive}/gd'
+        self.admin.post(url + '/evaluator', json={'poolIndex': 0, 'evaluatorName': 'Evaluator A'}, headers=headers)
+        key = gd['pools'][0]['members'][0]
+        self.admin.post(url + '/score', json={'studentKey': key, 'field': 'initiative', 'score': 4}, headers=headers)
+        roster = load_workbook(io.BytesIO(self.admin.get(url + '/export?mode=roster').data))
+        self.assertEqual(roster.sheetnames, ['GD pools'])
+        self.assertEqual(roster.active.max_row, len(expected) + 1)
+        scores = load_workbook(io.BytesIO(self.admin.get(url + '/export?mode=scores').data))
+        self.assertEqual(scores.sheetnames, [pool['name'] for pool in gd['pools']])
+        self.assertEqual(scores.worksheets[0].cell(2, 3).value, 'Evaluator A')
+        self.assertEqual(scores.worksheets[0].cell(2, 7).value, 4)
+        self.assertEqual(scores.worksheets[0].cell(2, 11).value, 4)
+        self.assertEqual(self.app.test_client().get(url + '/export').status_code, 401)
+
+    def test_manual_interview_decisions_and_exports_include_evaluator_and_interviewer(self):
+        headers = {'X-CSRF-Token': self.csrf}
+        student = 'GD-SEED'
+        base = f'/api/admin/drives/{self.drive}'
+        self.admin.post(base + '/gd/evaluator', json={'poolIndex': 0, 'evaluatorName': 'GD Evaluator'}, headers=headers)
+        url = base + '/candidate-decision'
+        data = {'studentId': student, 'interviewShortlisted': True}
+        self.assertEqual(self.admin.post(url, json=data, headers=headers).status_code, 400)
+        data.update(interviewRemarks='Strong reasoning in the group discussion.', interviewer='Interview Evaluator')
+        response = self.admin.post(url, json=data, headers=headers)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertTrue(response.json['decision']['interviewShortlisted'])
+        response = self.admin.post(url, json={'studentId': student, 'interviewRemarks': ''}, headers=headers)
+        self.assertEqual(response.status_code, 400)
+        exported = self.admin.post(base + '/final/export', json={'studentIds': [student]}, headers=headers)
+        sheet = load_workbook(io.BytesIO(exported.data)).active
+        values = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))
+        self.assertEqual(values['GD evaluator'], 'GD Evaluator')
+        self.assertEqual(values['Interview shortlisted'], 'Yes')
+        self.assertEqual(values['Interview remarks'], data['interviewRemarks'])
+        self.assertEqual(values['Interviewer'], data['interviewer'])
+        self.admin.post(base + '/final-shortlist', json={'studentIds': [student], 'value': True}, headers=headers)
+        decision = self.state()['state']['drives'][0]['finalDecisions']['gd-seed']
+        self.assertEqual(decision['interviewRemarks'], '')
+        self.assertFalse(decision['interviewManual'])
+
+    def test_language_component_scores_use_original_question_ids(self):
+        from exports import language_parts
+        questions = [{'id': f'q{i}'} for i in range(25)]
+        grading = {'results': [{'id': q['id'], 'score': 1 if i < 20 else 0.5} for i, q in enumerate(questions)]}
+        grading['results'].reverse()
+        self.assertEqual(language_parts({'questions': questions}, grading), [20, 2.5])
+        grading['results'][0]['score'] = None
+        self.assertEqual(language_parts({'questions': questions}, grading), [20, None])
+
+
 if __name__ == '__main__':
     unittest.main()
 
