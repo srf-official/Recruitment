@@ -23,7 +23,7 @@ from werkzeug.security import check_password_hash
 from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
-from exports import excel, final_excel, filename, results_rows, words
+from exports import excel, final_excel, filename, results_rows, words, gd_excel
 from store import Store, attempts, login_limits, now_ms
 
 
@@ -290,7 +290,7 @@ def create_app(settings=None):
                 if permutation and q.get('options') and len(permutation) == len(q['options']):
                     q['options'] = [q['options'][i] for i in permutation]
             candidate = {k: copy.deepcopy(v) for k, v in attempt.items()
-                         if k not in {'manualMarks', 'shortlisted', 'promptScore', 'questionOrder', 'optionOrder'}}
+                         if k not in {'manualMarks', 'shortlisted', 'manualShortlisted', 'shortlistRemarks', 'promptScore', 'questionOrder', 'optionOrder'}}
             for q in test['questions']:
                 if q['type'] == 'matching' and q['id'] in candidate['responses']:
                     candidate['responses'][q['id']] = [None if i is None else signer(q['id'], i) for i in candidate['responses'][q['id']]]
@@ -455,10 +455,57 @@ def create_app(settings=None):
                     skipped += 1
                     continue
                 a['shortlisted'] = data.get('value', True) is True
+                a['manualShortlisted'] = False
+                a['shortlistRemarks'] = ''
                 changed += 1
             if test['type'] == 'language' and data.get('value', True) is True and changed:
                 test['shortlistAppliedAt'] = now_ms()
             return jsonify(changed=changed, skipped=skipped)
+
+    @app.post('/api/admin/tests/<test_id>/manual-shortlist')
+    @admin
+    def manual_aptitude_shortlist(test_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and isinstance(data.get('changes'), list) and 0 < len(data['changes']) <= 2000,
+                'Provide the candidate updates.')
+        with store.transaction() as tx:
+            test = test_required(tx, test_id)
+            require(test['type'] == 'aptitude', 'Manual aptitude shortlisting is available only for Aptitude.')
+            tx.expire(test_id)
+            candidates = {a['id']: a for a in tx.all_attempts(test_id)}
+            validated, seen = [], set()
+            for item in data['changes']:
+                require(isinstance(item, dict), 'Invalid candidate update.')
+                aid = item.get('attemptId')
+                require(isinstance(aid, str) and aid in candidates and aid not in seen, 'Candidate not found or repeated.')
+                seen.add(aid)
+                a = candidates[aid]
+                value = item.get('shortlisted')
+                require(type(value) is bool, 'Choose a valid shortlist status.')
+                remarks = clean_text(item.get('remarks', ''), 2000, 'shortlist remarks')
+                require(not value or bool(remarks), 'Remarks are required for every manually shortlisted candidate.')
+                require(a.get('submittedAt') and not grade(test['questions'], a)['pending'],
+                        'Only completed candidates with final marks can be manually shortlisted.')
+                validated.append((a, value, remarks))
+            for a, value, remarks in validated:
+                if value:
+                    a.update(shortlisted=True, manualShortlisted=True, shortlistRemarks=remarks)
+                elif a.get('manualShortlisted'):
+                    a.update(shortlisted=False, manualShortlisted=False, shortlistRemarks='')
+            return jsonify(changed=len(validated), serverNow=now_ms())
+
+    @app.get('/api/admin/drives/<drive_id>/gd/export')
+    @admin
+    def export_gd_pools(drive_id):
+        mode = request.args.get('mode', 'roster')
+        require(mode in {'roster', 'scores'}, 'Choose a valid GD export.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None and drive.get('gd', {}).get('pools'), 'Generate GD pools before exporting.')
+            payload = gd_excel(drive, mode)
+            name = filename(drive['name'] + '_gd_' + mode) + '.xlsx'
+        return send_file(io.BytesIO(payload), as_attachment=True, download_name=name,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.post('/api/admin/drives/<drive_id>/delete')
     @admin
@@ -497,7 +544,8 @@ def create_app(settings=None):
                     prior = selected.get(key)
                     if prior is None or candidate.get('startedAt', 0) > prior.get('startedAt', 0):
                         selected[key] = {'studentId': candidate['studentId'], 'name': candidate['name']}
-            roster = sorted(selected.items(), key=lambda pair: (pair[1]['name'].casefold(), pair[1]['studentId'].casefold()))
+            roster = list(selected.items())
+            secrets.SystemRandom().shuffle(roster)
             require(bool(roster), 'No shortlisted candidates are available for GD pools.')
             pool_count = max(1, len(roster) // data['poolSize'])
             while math.ceil(len(roster) / pool_count) > 10:
@@ -630,6 +678,9 @@ def create_app(settings=None):
             decision = decisions.get(key, {})
             row['interviewShortlisted'] = decision.get('interviewShortlisted') is True
             row['outcome'] = decision.get('outcome') or 'none'
+            row['interviewRemarks'] = decision.get('interviewRemarks', '')
+            row['interviewer'] = decision.get('interviewer', '')
+            row['gdEvaluator'] = next((p.get('evaluatorName', '') for p in drive.get('gd', {}).get('pools', []) if key in p.get('members', [])), '')
             row.pop('_latest', None)
             row.pop('_latest_name', None)
         return sorted(candidates.values(), key=lambda r: (r['name'].casefold(), r['studentId'].casefold()))
@@ -655,6 +706,8 @@ def create_app(settings=None):
                 if decision.get('interviewShortlisted') is not value:
                     decision['interviewShortlisted'] = value
                     changed += 1
+                decision['interviewManual'] = False
+                decision['interviewRemarks'] = ''
             return jsonify(changed=changed, serverNow=now_ms())
 
     @app.post('/api/admin/drives/<drive_id>/candidate-decision')
@@ -663,8 +716,12 @@ def create_app(settings=None):
         data = request.get_json()
         require(isinstance(data, dict), 'Invalid decision request.')
         student = clean_text(data.get('studentId'), 60, 'student ID')
-        outcome = data.get('outcome')
-        require(outcome in {'none', 'selected', 'on-hold', 'rejected'}, 'Choose a valid candidate status.')
+        require(any(field in data for field in ('outcome', 'interviewShortlisted', 'interviewRemarks', 'interviewer')),
+                'Provide a candidate decision.')
+        if 'outcome' in data:
+            require(data['outcome'] in {'none', 'selected', 'on-hold', 'rejected'}, 'Choose a valid candidate status.')
+        if 'interviewShortlisted' in data:
+            require(type(data['interviewShortlisted']) is bool, 'Choose Yes or No for interview shortlisting.')
         with store.transaction() as tx:
             drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
             require(drive is not None, 'Drive not found.')
@@ -672,8 +729,17 @@ def create_app(settings=None):
             key = student_key(student)
             require(key in rows, 'Candidate is not in this drive.')
             decision = drive.setdefault('finalDecisions', {}).setdefault(key, {})
-            decision['outcome'] = None if outcome == 'none' else outcome
-            return jsonify(outcome=outcome, serverNow=now_ms())
+            if 'outcome' in data:
+                decision['outcome'] = None if data['outcome'] == 'none' else data['outcome']
+            if 'interviewer' in data:
+                decision['interviewer'] = clean_text(data['interviewer'], 100, 'interviewer name')
+            if 'interviewShortlisted' in data or 'interviewRemarks' in data:
+                value = data.get('interviewShortlisted', decision.get('interviewShortlisted', False))
+                remarks = clean_text(data.get('interviewRemarks', decision.get('interviewRemarks', '')), 2000, 'interview remarks')
+                manual = value and ('interviewShortlisted' in data or decision.get('interviewManual'))
+                require(not manual or bool(remarks), 'Remarks are required when manually shortlisting a candidate for interview.')
+                decision.update(interviewShortlisted=value, interviewManual=bool(manual), interviewRemarks=remarks if value else '')
+            return jsonify(outcome=decision.get('outcome') or 'none', decision=decision, serverNow=now_ms())
 
     @app.post('/api/admin/drives/<drive_id>/final/export')
     @admin
