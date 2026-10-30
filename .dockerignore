@@ -9,3 +9,5 @@
 !static/**
 !scripts/
 !scripts/init_db.py
+
+!response_import.py
