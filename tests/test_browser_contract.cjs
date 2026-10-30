@@ -221,5 +221,20 @@ const run=code=>vm.runInContext(code,context);
  assert.deepEqual(finalRequest.body.studentIds,['1','2']);
  assert.equal(finalRequest.body.value,false);
 
+ // GD entries are local drafts until a pool is explicitly saved.
+ run("state.drives=[{id:'pool-drive',name:'Pool drive',gd:{pools:[{name:'Pool A',members:['person'],evaluatorName:'Evaluator'}],candidates:{person:{name:'Person',studentId:'ID'}},scores:{}}}];gdPoolDrafts={}");
+ let scoreRequests=0;
+ context.fetch=async()=>{scoreRequests++;throw new Error('Editing must not call the server');};
+ run("saveGdScore('pool-drive','person','initiative','4',null);saveGdShortlist('pool-drive','person',true)");
+ assert.equal(scoreRequests,0);
+ assert.equal(run("gdPoolDrafts['pool-drive:0'].scores.person.initiative"),4);
+ assert.equal(run("gdPoolDrafts['pool-drive:0'].scores.person.shortlisted"),true);
+ assert.equal(run("state.drives[0].gd.scores.person"),undefined);
+ assert(run("gdMarkup(state.drives[0])").includes('type="text" inputmode="decimal"'));
+ run("gdPoolDrafts={};state.drives[0].gd.pools[0].scoresSavedAt=1");
+ assert(run("gdMarkup(state.drives[0])").includes('Edit scores'));
+ run("editGdPool('pool-drive',0)");
+ assert(run("gdPoolDrafts['pool-drive:0']!==undefined"));
+
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
