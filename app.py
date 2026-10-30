@@ -23,7 +23,7 @@ from werkzeug.security import check_password_hash
 from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
-from exports import excel, final_excel, filename, results_rows, words, gd_excel, language_parts
+from exports import excel, final_excel, filename, results_rows, words, gd_excel, language_parts, prompt_workbook
 from store import Store, attempts, login_limits, now_ms
 
 
@@ -472,7 +472,7 @@ def create_app(settings=None):
             test = test_required(tx, test_id)
             require(test['type'] != 'prompt', 'Prompt Engineering is evaluated separately.')
             tx.expire(test_id)
-            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(data), filters=data if test['type'] == 'aptitude' else None)
+            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(data), filters=data, drive_name=next(d['name'] for d in tx.state['drives'] if d['id'] == test['driveId']))
             changed, skipped = 0, 0
             for a, g, _ in rows:
                 if data.get('attemptId') and a['id'] != data['attemptId']:
@@ -934,11 +934,26 @@ def create_app(settings=None):
             test = test_required(tx, test_id)
             require(test['type'] != 'prompt', 'Use the Word document export for Prompt Engineering.')
             tx.expire(test_id)
-            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(request.args), filters=request.args if test['type'] == 'aptitude' else None)
+            rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(request.args), filters=request.args, drive_name=next(d['name'] for d in tx.state['drives'] if d['id'] == test['driveId']))
             require(rows, 'No candidates match the filters.')
             drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
             payload = excel(drive, test, rows)
             name = filename(drive['name'] + '_' + test['type'] + '_results') + '.xlsx'
+        return send_file(io.BytesIO(payload), as_attachment=True, download_name=name,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    @app.get('/api/admin/tests/<test_id>/prompt-excel')
+    @admin
+    def export_prompt_workbook(test_id):
+        with store.transaction() as tx:
+            test = test_required(tx, test_id)
+            tx.expire(test_id)
+            require(test['type'] == 'prompt' and test.get('closedAt'), 'Finish or stop the prompt test before exporting.')
+            candidates = tx.all_attempts(test_id)
+            require(candidates and all(a.get('submittedAt') for a in candidates), 'Responses are not complete.')
+            drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
+            payload = prompt_workbook(drive, test, candidates)
+            name = filename(drive['name'] + '_Prompt Responses') + '.xlsx'
         return send_file(io.BytesIO(payload), as_attachment=True, download_name=name,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

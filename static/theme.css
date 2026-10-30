@@ -201,3 +201,30 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .final-scores-table .interviewer-select{min-width:130px;max-width:170px}
 
 .candidate-report .modal-body{max-height:72vh;overflow:auto}.candidate-report-section{border:1px solid #dbe6e8;border-radius:12px;padding:18px;margin:16px 0;background:#fff}.candidate-report-question{border-top:1px solid #e7eef0;padding:14px 0}.candidate-report-question dl{display:grid;grid-template-columns:150px 1fr;gap:6px 14px}.candidate-report-question dt{font-weight:600}.candidate-report-question dd{margin:0;white-space:pre-wrap}.candidate-report-question pre{white-space:pre-wrap}
+
+/* Response review column filters and fixed final-score cell boundaries. */
+.results-controls.response-controls{grid-template-columns:minmax(240px,420px) minmax(0,1fr);align-items:center;gap:20px}
+.response-controls .score-distribution{width:100%;max-width:420px}.response-controls .shortlist-actions{align-items:center}
+button.candidate-review-action{background:#e9e5f8;border-color:#c9bde9;color:#594183;font-weight:600}
+button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
+#responseTable thead th{padding:0;text-transform:none;letter-spacing:0;background:#f0f6f8}
+#responseTable .final-header-filter{min-height:58px;padding:12px 14px}
+#responseTable th:last-child{min-width:110px}
+#response-active-filters:empty{display:none}
+#final-score-content .final-scores-table{min-width:2260px!important;table-layout:fixed}
+#final-score-content th.final-col-name{width:180px}#final-score-content th.final-col-studentId{width:135px}
+#final-score-content th.final-col-aptitudeScore{width:105px}#final-score-content th.final-col-aptitudeShortlisted{width:130px}
+#final-score-content th.final-col-gdScore{width:100px}#final-score-content th.final-col-gdRecommended{width:110px}
+#final-score-content th.final-col-gdEvaluator{width:165px}#final-score-content th.final-col-languageScore{width:140px}
+#final-score-content th.final-col-reasoningScore{width:130px}#final-score-content th.final-col-interviewShortlisted{width:115px}
+#final-score-content th.final-col-interviewRemarks{width:240px}#final-score-content th.final-col-promptScore{width:150px}
+#final-score-content th.final-col-interviewer{width:180px}#final-score-content th.final-col-outcome{width:145px}
+#final-score-content .final-scores-table th:last-child{width:165px}
+#final-score-content .final-scores-table td{box-sizing:border-box}
+#final-score-content .final-scores-table td.interview-remarks{width:auto;min-width:0}
+#final-score-content .final-scores-table td.interview-remarks textarea{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;resize:vertical}
+#final-score-content td.final-interview-shortlisted .final-status-select{width:84px;min-width:0;max-width:100%;padding-left:9px}
+#final-score-content .final-prompt-score{width:100%;min-width:0;max-width:100%;gap:6px}
+#final-score-content .final-prompt-score input{box-sizing:border-box;width:62px;min-width:0;flex:0 0 62px}
+#final-score-content .interviewer-select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid #dbe5ea;border-radius:8px;background:#f5f8fa;font:inherit}
+@media(max-width:800px){.results-controls.response-controls{grid-template-columns:1fr}.response-controls .shortlist-actions{justify-content:flex-start}}

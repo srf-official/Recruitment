@@ -45,8 +45,36 @@ def number_filter(raw, operator='gte', upper=None):
     return matches
 
 
-def results_rows(test, attempts, minimum_marks=None, minimum_time=None, filters=None):
+def response_column_filters(raw, test):
+    import json
+    if raw is None or raw == '':
+        return {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            require(False, 'Invalid column filters.')
+    allowed = {'driveName', 'name', 'studentId', 'marks', 'minutes', 'shortlisted'}
+    allowed |= {'remarks'} if test['type'] == 'aptitude' else {'languageScore', 'reasoningScore'}
+    require(isinstance(raw, dict) and set(raw) <= allowed, 'Invalid column filters.')
+    output = {}
+    for key, value in raw.items():
+        require(isinstance(value, dict), 'Invalid column filter.')
+        if key in {'marks', 'minutes', 'languageScore', 'reasoningScore'}:
+            output[key] = number_filter(value.get('value'), value.get('op', 'gte'), value.get('upper'))
+        elif key == 'shortlisted':
+            require(isinstance(value.get('values'), list) and all(v in {'Yes', 'No'} for v in value['values']), 'Invalid shortlist filter.')
+            output[key] = lambda item, selected=value['values']: item in selected
+        else:
+            text = value.get('text', '')
+            require(isinstance(text, str) and len(text) <= 2000, 'Invalid text filter.')
+            output[key] = lambda item, text=text.casefold(): text in str(item or '').casefold()
+    return output
+
+
+def results_rows(test, attempts, minimum_marks=None, minimum_time=None, filters=None, drive_name=None):
     filters = filters or {}
+    columns = response_column_filters(filters.get('columnFilters'), test)
     marks_match = number_filter(minimum_marks, filters.get('marksOp', 'gte'), filters.get('maxMarks'))
     time_match = number_filter(minimum_time, filters.get('timeOp', 'gte'), filters.get('maxTime'))
     output = []
@@ -55,6 +83,13 @@ def results_rows(test, attempts, minimum_marks=None, minimum_time=None, filters=
         if not marks_match(g['total'] if a.get('submittedAt') else None):
             continue
         if not time_match(elapsed):
+            continue
+        parts = language_parts(test, g) if test['type'] == 'language' and a.get('submittedAt') else [None, None]
+        values = {'driveName': drive_name or test.get('name', ''), 'name': a['name'], 'studentId': a['studentId'],
+                  'marks': g['total'] if a.get('submittedAt') else None, 'minutes': elapsed,
+                  'shortlisted': 'Yes' if a.get('shortlisted') else 'No', 'remarks': a.get('shortlistRemarks', ''),
+                  'languageScore': parts[0], 'reasoningScore': parts[1]}
+        if not all(matches(values[key]) for key, matches in columns.items()):
             continue
         output.append((a, g, elapsed))
     return sorted(output, key=lambda row: (not bool(row[0].get('submittedAt')), -row[1]['total'], row[2] or 0))
@@ -182,4 +217,42 @@ def final_excel(drive, rows):
                       row.get('interviewer', ''),
                       {'none': 'None', 'selected': 'Selected', 'on-hold': 'On hold', 'rejected': 'Rejected'}.get(row.get('outcome'), 'None')])
     style_sheet(sheet, [34, 28, 20, 18, 24, 16, 18, 26, 22, 22, 24, 45, 30, 26, 18])
+    return workbook_bytes(book)
+
+
+def prompt_workbook(drive, test, candidates):
+    book = Workbook()
+    book.remove(book.active)
+    names = set()
+    for candidate in candidates:
+        base = re.sub(r'[\\/*?:\[\]:]', '_', candidate.get('name', '')).strip().strip("'") or 'Candidate'
+        if base.casefold() == 'history':
+            base = 'Candidate History'
+        title, suffix = base[:31], 1
+        while title.casefold() in names:
+            suffix += 1
+            tail = f' ({suffix})'
+            title = base[:31-len(tail)] + tail
+        names.add(title.casefold())
+        sheet = book.create_sheet(title)
+        sheet.append(['Field', 'Details'])
+        for label, value in [('Drive', drive['name']), ('Candidate name', candidate['name']),
+                             ('Student ID', candidate['studentId']), ('Score (out of 10)', candidate.get('promptScore')),
+                             ('Time taken (minutes)', minutes(candidate))]:
+            sheet.append([label, value])
+        for index, question in enumerate(test['questions'], 1):
+            text = question['text']
+            for offset in range(0, len(text), 30000):
+                sheet.append([f'Question {index}' if offset == 0 else 'Question continued', text[offset:offset + 30000]])
+            response = candidate.get('responses', {}).get(question['id'])
+            if not response and len(test['questions']) == 1:
+                response = candidate.get('answer')
+            response = str(response or '(No answer entered)')
+            for offset in range(0, len(response), 30000):
+                sheet.append(['Response' if offset == 0 else 'Response continued', response[offset:offset + 30000]])
+        style_sheet(sheet, [25, 110])
+        for row in sheet.iter_rows(min_row=2):
+            row[0].font = Font(bold=True, color='28544E')
+            row[1].alignment = Alignment(vertical='top', wrap_text=True)
+            sheet.row_dimensions[row[0].row].height = min(300, max(28, 15 * (str(row[1].value or '').count('\n') + len(str(row[1].value or '')) // 110 + 1)))
     return workbook_bytes(book)

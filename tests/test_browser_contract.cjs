@@ -49,12 +49,16 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run('currentQuiz().a.sequence'),4);
  assert.equal(run('currentQuiz().a.responses.q1[0]'),1);
  run("view='sessions';responseSession='c1';openResultsTable('c1')");
- assert(document.querySelector('#modal').innerHTML.includes('Marks (out of 30)'));
- assert(document.querySelector('#modal').innerHTML.includes('Time (minutes, out of 15)'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('Filter Marks obtained'));
+ assert(!document.querySelector('#modal').innerHTML.includes('filter-minMarks'));
+ assert(document.querySelector('#modal').innerHTML.indexOf('Revert shortlisting')<document.querySelector('#modal').innerHTML.indexOf('View candidate responses'));
+ assert(!document.querySelector('#modal').innerHTML.split('results-footer')[1].includes('View candidate responses'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('Filter Time taken (min)'));
  assert(document.querySelector('#modal').innerHTML.includes('Revert shortlisting'));
  assert(!document.querySelector('#responseTable').innerHTML.includes('shortlist-check'));
  run("state.sessions[0].type='language';openResultsTable('c1')");
- assert(document.querySelector('#modal').innerHTML.includes('Min marks (out of 25)'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('Filter Language score (20)'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('Filter Reasoning score (5)'));
  assert(document.querySelector('#score-distribution').innerHTML.includes('Score distribution'));
  assert(document.querySelector('#modal').innerHTML.includes('Shortlist filtered candidates'));
  assert(document.querySelector('#responseTable').innerHTML.includes('Shortlisted'));
@@ -63,7 +67,7 @@ const run=code=>vm.runInContext(code,context);
  assert(chartHtml.includes('33%'));
  assert(chartHtml.includes('&lt;10') || chartHtml.includes('<10'));
 
- assert(document.querySelector('#modal').innerHTML.includes('Min time (minutes) (out of 20)'));
+ assert(!document.querySelector('#modal').innerHTML.includes('filter-minTime'));
  const resultsHtml=document.querySelector('#modal').innerHTML;
  assert(resultsHtml.indexOf('Shortlist filtered candidates') < resultsHtml.indexOf('results-scroll'));
  assert(!resultsHtml.slice(resultsHtml.indexOf('results-footer')).includes('Revert shortlisting'));
@@ -181,6 +185,17 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run("finalScoreFilters['review-drive'].gdScore.value"),10);
  assert.equal(document.querySelector('#modal').open,true);
 
+ // Every response data column uses the same filter popover, including no-result views.
+ run("state.drives=[{id:'columns',name:'Demo drive'}];state.sessions=[{id:'columns-test',driveId:'columns',type:'language',questions:partsQuestions,attempts:[{id:'col-a',name:'Alice',studentId:'ID-A',submittedAt:60001,startedAt:1,responses:{},shortlisted:true},{id:'col-b',name:'Bob',studentId:'ID-B',submittedAt:120001,startedAt:1,responses:{},shortlisted:false}]}];responseSession='columns-test';responseColumnFilters={name:{text:'ALI'},shortlisted:{values:['Yes']}};");
+ assert.equal(run("responseRows(state.sessions[0]).map(r=>r.a.name).join(',')"),'Alice');
+ run("responseColumnFilters.name={text:'nobody'};updateResponseTable()");
+ assert(document.querySelector('#responseTable').innerHTML.includes('No candidates match'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('Filter Student name'));
+ run("responseColumnFilters={};updateResponseTable()");
+ assert.equal(run("responseRows(state.sessions[0]).length"),2);
+ run("modal.close();showPromptResponses({id:'p',name:'Demo prompt',type:'prompt',closedAt:1,questions:[],attempts:[{id:'p1',name:'Alice',studentId:'ID-A',submittedAt:60001,startedAt:1,responses:{}}]})");
+ assert(document.querySelector('#modal').innerHTML.includes('Export prompt responses to Excel'));
+ assert(!document.querySelector('#modal').innerHTML.includes('Word export'));
  // Export and bulk shortlist resolve the same filtered candidate IDs.
  let finalRequest;
  context.fetch=async(path,options={})=>{

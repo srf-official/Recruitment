@@ -520,6 +520,69 @@ class ApplicationTests(unittest.TestCase):
                                json={'studentIds': ['GD-SEED'], 'mode': 'interview'}, headers=headers)
         self.assertEqual(empty.status_code, 400)
 
+    def test_response_column_filters_share_shortlist_and_export_behavior(self):
+        from urllib.parse import urlencode
+        headers = {'X-CSRF-Token': self.csrf}
+        first, csrf1, first_attempt = self.candidate(name='Header Alice', student='HEADER-A')
+        second, csrf2, second_attempt = self.candidate(name='Header Bob', student='HEADER-B')
+        self.answer(first, csrf1, submit=True)
+        self.answer(second, csrf2, submit=True)
+        with self.app.extensions['store'].transaction() as tx:
+            for attempt in tx.all_attempts(self.tests['aptitude']):
+                if attempt['id'] in {first_attempt['id'], second_attempt['id']}:
+                    attempt['importedScore'] = 20
+                    attempt['importedElapsedMinutes'] = 3
+        filters = {'driveName': {'text': 'Synthetic'}, 'name': {'text': 'alice'},
+                   'studentId': {'text': 'HEADER'}, 'marks': {'op': 'gte', 'value': 15},
+                   'minutes': {'op': 'between', 'value': 2, 'upper': 4}, 'shortlisted': {'values': ['No']}}
+        url = f'/api/admin/tests/{self.tests["aptitude"]}'
+        result = self.admin.post(url + '/shortlist', json={'columnFilters': filters, 'value': True}, headers=headers)
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual(result.json['changed'], 1)
+        filters['shortlisted']['values'] = ['Yes']
+        exported = self.admin.get(url + '/excel?' + urlencode({'columnFilters': json.dumps(filters)}))
+        self.assertEqual(exported.status_code, 200)
+        sheet = load_workbook(io.BytesIO(exported.data)).active
+        self.assertEqual(sheet.max_row, 2)
+        self.assertEqual(sheet.cell(2, 3).value, 'HEADER-A')
+        invalid = self.admin.post(url + '/shortlist', json={'columnFilters': {'unknown': {'text': 'x'}}}, headers=headers)
+        self.assertEqual(invalid.status_code, 400)
+        from exports import results_rows
+        questions = [{**question(), 'id': f'section-{i}', 'correctScore': 1, 'wrongScore': 0} for i in range(25)]
+        language = {'type': 'language', 'questions': questions}
+        candidates = [{'name': 'Alice', 'studentId': 'A', 'startedAt': 1, 'submittedAt': 60001,
+                       'responses': {q['id']: [1] for q in questions}, 'shortlisted': True}]
+        parts_filter = {'columnFilters': {'languageScore': {'op': 'eq', 'value': 20},
+                                         'reasoningScore': {'op': 'gte', 'value': 5}}}
+        self.assertEqual(len(results_rows(language, candidates, filters=parts_filter)), 1)
+        parts_filter['columnFilters']['reasoningScore']['value'] = 6
+        self.assertEqual(results_rows(language, candidates, filters=parts_filter), [])
+
+    def test_prompt_workbook_has_unique_candidate_sheets_and_preserves_long_responses(self):
+        name = 'Candidate / With * Long Name For Export'
+        first, csrf1, _ = self.candidate('prompt', name=name, student='BOOK-1')
+        second, csrf2, _ = self.candidate('prompt', name=name, student='BOOK-2')
+        url = f'/api/admin/tests/{self.tests["prompt"]}/prompt-excel'
+        self.assertEqual(self.app.test_client().get(url).status_code, 401)
+        self.assertEqual(self.admin.get(url).status_code, 400)
+        response_text = '=literal prompt\n' + 'Detailed response. ' * 3000
+        self.answer(first, csrf1, 'prompt', {'q1': response_text}, submit=True)
+        self.assertEqual(self.admin.get(url).status_code, 400)
+        self.answer(second, csrf2, 'prompt', {'q1': ''}, submit=True)
+        response = self.admin.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('_Prompt%20Responses.xlsx', response.headers['Content-Disposition'].replace(' ', '%20'))
+        book = load_workbook(io.BytesIO(response.data))
+        self.assertEqual(len(book.sheetnames), 2)
+        self.assertEqual(len(set(n.casefold() for n in book.sheetnames)), 2)
+        self.assertTrue(all(len(n) <= 31 and not any(c in n for c in '[]:*?/\\') for n in book.sheetnames))
+        first_sheet = next(s for s in book if s.cell(4, 2).value == 'BOOK-1')
+        actual = ''.join(row[1].value for row in first_sheet if str(row[0].value).startswith('Response'))
+        self.assertEqual(actual, response_text.strip())
+        self.assertTrue(all(row[1].data_type == 's' for row in first_sheet if str(row[0].value).startswith('Response')))
+        blank_sheet = next(s for s in book if s.cell(4, 2).value == 'BOOK-2')
+        self.assertIn('(No answer entered)', [row[1].value for row in blank_sheet])
+
     def test_language_component_scores_use_original_question_ids(self):
         from exports import language_parts
         questions = [{'id': f'q{i}'} for i in range(25)]
