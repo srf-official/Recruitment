@@ -200,7 +200,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .final-scores-table .interview-remarks textarea{height:36px;min-height:36px;max-height:72px;padding:6px 8px}
 .final-scores-table .interviewer-select{min-width:130px;max-width:170px}
 
-.candidate-report .modal-body{max-height:72vh;overflow:auto}.candidate-report-section{border:1px solid #dbe6e8;border-radius:12px;padding:18px;margin:16px 0;background:#fff}.candidate-report-question{border-top:1px solid #e7eef0;padding:14px 0}.candidate-report-question dl{display:grid;grid-template-columns:150px 1fr;gap:6px 14px}.candidate-report-question dt{font-weight:600}.candidate-report-question dd{margin:0;white-space:pre-wrap}.candidate-report-question pre{white-space:pre-wrap}
+.candidate-report .modal-body{max-height:72vh;overflow:auto}.candidate-report-section{border:1px solid #dbe6e8;border-radius:12px;padding:18px;margin:16px 0;background:#fff}.candidate-report-question{border-top:1px solid #e7eef0;padding:14px 16px}.candidate-report-question dl{display:grid;grid-template-columns:150px 1fr;gap:6px 14px}.candidate-report-question dt{font-weight:600}.candidate-report-question dd{margin:0;white-space:pre-wrap}.candidate-report-question pre{white-space:pre-wrap}
 
 /* Response review column filters and fixed final-score cell boundaries. */
 .results-controls.response-controls{grid-template-columns:minmax(240px,420px) minmax(0,1fr);align-items:center;gap:20px}

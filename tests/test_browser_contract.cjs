@@ -172,6 +172,15 @@ const run=code=>vm.runInContext(code,context);
  assert(document.querySelector('#modal').innerHTML.includes('all filled responses will be saved'));
  run("toast('Duplicate student ID')");
  assert.equal(document.querySelector('#toast').popoverVisible,true);
+ for (const type of ['aptitude','language']) {
+   const renderChoices = choices => run(`renderCandidateResponseSection(${JSON.stringify({type,hasAttempt:true,title:type,maxScore:30,score:0,questions:[{text:'Question',choices}]})})`);
+   const unanswered = renderChoices([{text:'Correct',correct:true,selected:false},{text:'Wrong',correct:false,selected:false}]);
+   assert(unanswered.includes('✓')&&!unanswered.includes('is-correct')&&!unanswered.includes('is-selected'));
+   const correct = renderChoices([{text:'Correct',correct:true,selected:true},{text:'Wrong',correct:false,selected:false}]);
+   assert(correct.includes('is-correct')&&correct.includes('is-selected'));
+   const incorrect = renderChoices([{text:'Correct',correct:true,selected:false},{text:'Wrong',correct:false,selected:true}]);
+   assert(incorrect.includes('is-correct')&&incorrect.includes('is-incorrect')&&incorrect.includes('×'));
+ }
  const tableReport=run("renderCandidateResponseSection({type:'language',hasAttempt:true,title:'Language',maxScore:25,score:1,questions:[{text:'Question',table:[['Stall','Cost'],['<Momos>',50]],choices:[]}]})");
  assert(tableReport.includes('<table>')&&tableReport.includes('<th scope="col">Stall</th>'));
  assert(tableReport.includes('&lt;Momos&gt;')&&!tableReport.includes('<pre'));
