@@ -622,6 +622,36 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(len(test['attempts']),1);self.assertTrue(test['attempts'][0]['shortlisted'])
         self.assertEqual(test['attempts'][0]['shortlistRemarks'],'Keep existing decision')
         self.assertEqual(next(d for d in current['state']['drives'] if d['id']==drive)['finalDecisions']['imp1']['outcome'],'selected')
+        # Changing the default answer key must affect the next preview, not the stored drive yet.
+        before = self.state()
+        previous_test = next(t for t in before['state']['sessions'] if t['driveId'] == drive)
+        before['state']['questionSets']['aptitude'][0]['key'] = [0]
+        self.assertEqual(self.put_state(before['state'], before['revision']).status_code, 200)
+        refreshed = post(raw)
+        self.assertEqual(refreshed.json['records'][0]['score'], 2)
+        persisted = next(t for t in self.state()['state']['sessions'] if t['driveId'] == drive)
+        self.assertEqual(persisted['questions'][0]['key'], [1])
+        self.assertEqual(grade(persisted['questions'], persisted['attempts'][0])['total'], -1)
+        # An answer key edited after preview invalidates confirmation.
+        changed = self.state()
+        changed['state']['questionSets']['aptitude'][0]['wrongScore'] = -2
+        self.assertEqual(self.put_state(changed['state'], changed['revision']).status_code, 200)
+        self.assertEqual(post(raw, confirm='true', fingerprint=refreshed.json['fingerprint']).status_code, 400)
+        refreshed = post(raw)
+        self.assertEqual(post(raw, confirm='true', fingerprint=refreshed.json['fingerprint']).status_code, 200)
+        persisted = next(t for t in self.state()['state']['sessions'] if t['driveId'] == drive)
+        self.assertEqual(persisted['questions'][0]['key'], [0])
+        self.assertEqual(grade(persisted['questions'], persisted['attempts'][0])['total'], 2)
+        self.assertTrue(persisted['attempts'][0]['shortlisted'])
+        self.assertEqual(persisted['attempts'][0]['shortlistRemarks'], 'Keep existing decision')
+        # Option edits cannot silently reinterpret candidates absent from a re-upload.
+        changed = self.state()
+        changed['state']['questionSets']['aptitude'][0]['options'].reverse()
+        self.assertEqual(self.put_state(changed['state'], changed['revision']).status_code, 200)
+        self.assertEqual(post(raw).status_code, 400)
+        changed = self.state()
+        changed['state']['questionSets']['aptitude'][0]['options'].reverse()
+        self.assertEqual(self.put_state(changed['state'], changed['revision']).status_code, 200)
         for invalid in (workbook('Not an option'),workbook(duplicate=True)):
             preview=post(invalid);self.assertTrue(preview.json['errors'])
             self.assertEqual(post(invalid,confirm='true',fingerprint=preview.json['fingerprint']).status_code,400)
