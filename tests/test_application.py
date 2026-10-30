@@ -72,6 +72,38 @@ class ApplicationTests(unittest.TestCase):
         response = self.put_state(current['state'], current['revision'])
         self.assertEqual(response.status_code, 200, response.json)
 
+    def test_targeted_test_creation_preserves_other_admin_updates(self):
+        other_drive = uid()
+        current = self.state()
+        current['state']['drives'].append({'id': other_drive, 'name': 'Concurrent drive'})
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        headers = {'X-CSRF-Token': self.csrf}
+        path = f'/api/admin/drives/{other_drive}/tests'
+        first = self.admin.post(path, json={'type': 'language', 'availableAt': 0}, headers=headers)
+        second = self.admin.post(path, json={'type': 'language', 'availableAt': 0}, headers=headers)
+        self.assertEqual(first.status_code, 200, first.json)
+        self.assertEqual(second.json['testId'], first.json['testId'])
+        self.assertTrue(second.json['existing'])
+        self.assertEqual(len([t for t in self.state()['state']['sessions'] if t['driveId'] == other_drive]), 1)
+
+    def test_pool_scores_are_atomic_and_detect_same_pool_conflicts(self):
+        headers = {'X-CSRF-Token': self.csrf}
+        root = f'/api/admin/drives/{self.drive}/gd'
+        self.assertEqual(self.admin.post(root+'/evaluator', json={'poolIndex': 0, 'evaluatorName': 'Evaluator'}, headers=headers).status_code, 200)
+        drive = next(d for d in self.state()['state']['drives'] if d['id'] == self.drive)
+        pool, gd = drive['gd']['pools'][0], drive['gd']
+        baseline = {k: gd.get('scores', {}).get(k, {}) for k in pool['members']}
+        scores = {k: {'initiative': 4, 'content': 3, 'communication': 2, 'bodyLanguage': 5, 'shortlisted': True} for k in pool['members']}
+        payload = {'poolIndex': 0, 'members': pool['members'], 'evaluatorName': 'Evaluator', 'baseline': baseline, 'scores': scores}
+        invalid = copy.deepcopy(payload)
+        invalid['scores'][pool['members'][0]]['initiative'] = 6
+        self.assertEqual(self.admin.post(root+'/pool-scores', json=invalid, headers=headers).status_code, 400)
+        saved = self.admin.post(root+'/pool-scores', json=payload, headers=headers)
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual(saved.json['gd']['scores'][pool['members'][0]]['total'], 14)
+        self.assertTrue(saved.json['gd']['pools'][0]['scoresSavedAt'])
+        self.assertEqual(self.admin.post(root+'/pool-scores', json=payload, headers=headers).status_code, 409)
+
     def tearDown(self):
         self.app.extensions['store'].engine.dispose()
         self.directory.cleanup()

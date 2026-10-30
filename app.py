@@ -188,6 +188,26 @@ def create_app(settings=None):
             update_configuration(tx, payload.get('state'))
             return jsonify(revision=tx.next_version(), state=tx.export_state(), serverNow=now_ms())
 
+    @app.post('/api/admin/drives/<drive_id>/tests')
+    @admin
+    def create_drive_test(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and data.get('type') in DURATIONS, 'Invalid test type.')
+        kind = data['type']
+        available = data.get('availableAt')
+        require(type(available) is int and 0 <= available <= 4102444800000, 'Select a valid activation time.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None and not drive.get('finishedAt'), 'Drive is not open.')
+            existing = next((t for t in tx.state['sessions'] if t['driveId'] == drive_id and t['type'] == kind), None)
+            if existing:
+                return jsonify(testId=existing['id'], existing=True)
+            incoming = copy.deepcopy(tx.state)
+            incoming['sessions'].append({'id': str(uuid.uuid4()), 'driveId': drive_id, 'type': kind,
+                'availableAt': available, 'questions': drive.get('questionSets', {}).get(kind, tx.state['questionSets'][kind])})
+            update_configuration(tx, incoming)
+            return jsonify(testId=tx.state['sessions'][-1]['id'], existing=False)
+
     @app.post('/api/admin/drives/<drive_id>/members')
     @admin
     def add_drive_members(drive_id):
@@ -678,6 +698,37 @@ def create_app(settings=None):
             pool['evaluatorName'] = name
             gd['updatedAt'] = now_ms()
             return jsonify(pool=pool, serverNow=now_ms())
+
+    @app.post('/api/admin/drives/<drive_id>/gd/pool-scores')
+    @admin
+    def save_gd_pool_scores(drive_id):
+        data = request.get_json()
+        require(isinstance(data, dict) and type(data.get('poolIndex')) is int, 'Invalid pool request.')
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            gd = drive.get('gd') if drive else None
+            require(isinstance(gd, dict) and 0 <= data['poolIndex'] < len(gd['pools']), 'GD pool not found.')
+            pool = gd['pools'][data['poolIndex']]
+            require(bool(pool.get('evaluatorName')), 'Save the evaluator before scoring.')
+            current = {key: gd.get('scores', {}).get(key, {}) for key in pool['members']}
+            if data.get('baseline') != current or data.get('members') != pool['members'] or data.get('evaluatorName') != pool['evaluatorName']:
+                return jsonify(error='This pool changed on another device. Reopen the pools to review the latest scores before saving.'), 409
+            changes = data.get('scores')
+            require(isinstance(changes, dict) and set(changes) == set(pool['members']), 'Provide scores for this pool only.')
+            validated = {}
+            for key, values in changes.items():
+                require(isinstance(values, dict) and type(values.get('shortlisted')) is bool, 'Invalid recommendation.')
+                score = {'shortlisted': values['shortlisted']}
+                for field in ('initiative', 'content', 'communication', 'bodyLanguage'):
+                    value = values.get(field)
+                    require(type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 5, 'Enter all four scores from 0 to 5 for every candidate.')
+                    score[field] = value
+                score['total'] = round(sum(score[f] for f in ('initiative', 'content', 'communication', 'bodyLanguage')), 2)
+                validated[key] = score
+            gd.setdefault('scores', {}).update(validated)
+            pool['scoresSavedAt'] = now_ms()
+            gd['updatedAt'] = now_ms()
+            return jsonify(gd=gd)
 
     @app.post('/api/admin/drives/<drive_id>/gd/score')
     @admin

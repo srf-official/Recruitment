@@ -322,7 +322,7 @@ function previewGdPools(id) {
     dialog('Review GD pool allocation', `<p class="sub">${roster.length} candidates shortlisted in ${source.type === 'language' ? 'Language & Reasoning' : 'Aptitude'} will be distributed randomly and evenly. No pool exceeds 10 candidates.</p><div class="pool-preview-list">${rows}</div>`, `<button onclick="askPoolSize('${id}')">Edit pool size</button><button onclick="modal.close()">Cancel</button><button class="primary" onclick="confirmGdPools('${id}',${poolSize})">Confirm and open pools</button>`);
 }
 async function confirmGdPools(id, poolSize) {
-    try { const result = await api('/api/admin/drives/' + id + '/gd/pools', 'POST', { poolSize }); await reloadAdmin(); modal.close(); openGdPools(id); toast(`${result.candidateCount} shortlisted candidates assigned to ${result.gd.pools.length} GD pools.`); }
+    try { const result = await api('/api/admin/drives/' + id + '/gd/pools', 'POST', { poolSize }); await reloadAdmin(); Object.keys(gdPoolDrafts).filter(k=>k.startsWith(id+':')).forEach(k=>delete gdPoolDrafts[k]); modal.close(); openGdPools(id); toast(`${result.candidateCount} shortlisted candidates assigned to ${result.gd.pools.length} GD pools.`); }
     catch (e) { handleError(e); }
 }
 function gdMarkup(d) {
@@ -330,13 +330,15 @@ function gdMarkup(d) {
     const pools = d.gd.pools.map((pool, pi) => {
         const editing = editingGdEvaluator === `${d.id}:${pi}`;
         const evaluator = pool.evaluatorName || '';
+        const draft = gdPoolDrafts[`${d.id}:${pi}`];
+        const locked = !!pool.scoresSavedAt && !draft;
         return `<section class="gd-pool"><div class="gd-pool-heading"><div><h3>${esc(pool.name)} <small>${pool.members.length} candidates</small></h3>${evaluator ? `<p class="evaluator-label">Evaluator: <b>${esc(evaluator)}</b></p>` : '<p class="evaluator-label">Assign an evaluator before scoring this pool.</p>'}</div><div class="gd-evaluator-controls">${(d.members||[]).length ? `<select class="gd-evaluator-input" id="gd-evaluator-${pi}" ${evaluator && !editing ? 'disabled' : ''}><option value="">Select evaluator</option>${d.members.map(m=>`<option value="${esc(m)}" ${m===evaluator?'selected':''}>${esc(m)}</option>`).join('')}</select>` : `<input class="gd-evaluator-input" id="gd-evaluator-${pi}" maxlength="100" placeholder="Evaluator name" value="${esc(evaluator)}" ${evaluator && !editing ? 'disabled' : ''}>`}<button class="small" onclick="${evaluator && !editing ? `editGdEvaluator('${d.id}',${pi})` : `saveGdEvaluator('${d.id}',${pi})`}">${evaluator && !editing ? 'Change name' : 'Save evaluator'}</button></div></div><table><thead><tr><th>#</th><th>Name</th>${fields.map(([, label]) => `<th>${label} (5)</th>`).join('')}<th>Total (20)</th><th>Recommend</th></tr></thead><tbody>${pool.members.map((key, i) => {
-            const member = d.gd.candidates?.[key] || { name: key, studentId: key }, scores = d.gd.scores?.[key] || {};
+            const member = d.gd.candidates?.[key] || { name: key, studentId: key }, scores = draft?.scores[key] || d.gd.scores?.[key] || {};
             const keyArg = encodeURIComponent(key).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16));
-            return `<tr><td>${i + 1}</td><td>${esc(member.name)}<small>${esc(member.studentId)}</small></td>${fields.map(([field]) => `<td><input class="gd-score" type="number" min="0" max="5" step="0.5" value="${scores[field] ?? ''}" ${!evaluator ? 'disabled' : ''} aria-label="${esc(field)} score for ${esc(member.name)}" onchange="saveGdScore('${d.id}',decodeURIComponent('${keyArg}'),'${field}',this.value,this)"></td>`).join('')}<td class="gd-total">${scores.total ?? 0}</td><td><label class="shortlist-check"><input type="checkbox" ${scores.shortlisted ? 'checked' : ''} ${!evaluator ? 'disabled' : ''} onchange="saveGdShortlist('${d.id}',decodeURIComponent('${keyArg}'),this.checked)"> Recommend</label></td></tr>`;
-        }).join('') || '<tr><td colspan="8">No shortlisted candidates assigned to this pool.</td></tr>'}</tbody></table></section>`;
+            return `<tr><td>${i + 1}</td><td>${esc(member.name)}<small>${esc(member.studentId)}</small></td>${fields.map(([field]) => `<td><input class="gd-score" type="text" inputmode="decimal" autocomplete="off" value="${scores[field] ?? ''}" ${!evaluator || locked ? 'disabled' : ''} aria-label="${esc(field)} score for ${esc(member.name)}" oninput="saveGdScore('${d.id}',decodeURIComponent('${keyArg}'),'${field}',this.value,this)"></td>`).join('')}<td class="gd-total">${scores.total ?? 0}</td><td><label class="shortlist-check"><input type="checkbox" ${scores.shortlisted ? 'checked' : ''} ${!evaluator || locked ? 'disabled' : ''} onchange="saveGdShortlist('${d.id}',decodeURIComponent('${keyArg}'),this.checked)"> Recommend</label></td></tr>`;
+        }).join('') || '<tr><td colspan="8">No shortlisted candidates assigned to this pool.</td></tr>'}</tbody></table><div class="row" style="justify-content:flex-end;padding:16px;gap:10px"><button class="primary small" ${!evaluator || locked ? 'disabled' : ''} onclick="saveGdPool('${d.id}',${pi},this)">Save pool</button><button class="small" ${!evaluator || !locked ? 'disabled' : ''} onclick="editGdPool('${d.id}',${pi})">Edit scores</button>${draft ? `<button class="small" onclick="reloadGdPool('${d.id}',${pi})">Discard edits / reload pool</button>` : ''}<small>${draft ? 'Unsaved changes' : pool.scoresSavedAt ? 'Scores saved' : 'Save this pool when scoring is complete.'}</small></div></section>`;
     }).join('');
-    return `<header class="results-header"><div class="row between"><div><h2>GD Evaluation · ${esc(d.name)}</h2><p class="sub">Enter each area out of 5. The total is calculated out of 20 and saved as you score.</p></div><div class="row gd-export-actions"><button class="small" onclick="exportGd('${d.id}','roster')">Export pool list</button><button class="small" onclick="exportGd('${d.id}','scores')">Export pool scores</button><button class="small" onclick="refreshGdScores('${d.id}')">Refresh scores</button></div><button class="small danger" onclick="confirmClearGdPools('${d.id}')">Clear pools</button><button class="quiet" onclick="modal.close()" aria-label="Close GD evaluations">✕</button></div></header><div class="results-scroll gd-pools">${pools}</div><footer class="results-footer"><span class="sub">Scores and evaluator names are shared across administrator sessions. Closing this window only closes it on your device.</span></footer>`;
+    return `<header class="results-header"><div class="row between"><div><h2>GD Evaluation · ${esc(d.name)}</h2><p class="sub">Enter each area out of 5. The total is calculated out of 20. Use Save pool to save scores and recommendations.</p></div><div class="row gd-export-actions"><button class="small" onclick="exportGd('${d.id}','roster')">Export pool list</button><button class="small" onclick="exportGd('${d.id}','scores')">Export pool scores</button><button class="small" onclick="refreshGdScores('${d.id}')">Refresh scores</button></div><button class="small danger" onclick="confirmClearGdPools('${d.id}')">Clear pools</button><button class="quiet" onclick="closeGdPools()" aria-label="Close GD evaluations">✕</button></div></header><div class="results-scroll gd-pools">${pools}</div><footer class="results-footer"><span class="sub">Scores and evaluator names are shared across administrator sessions. Closing this window only closes it on your device.</span></footer>`;
 }
 function openGdPools(id) { let d = state.drives.find(x => x.id === id); if (!d?.gd) return toast('Generate the GD pools first.'); stopGdRefresh(); editingGdEvaluator = null; gdDrive = id; modal.className = 'results-dialog gd-evaluation'; modal.innerHTML = gdMarkup(d); if (!modal.open) modal.showModal(); gdRefreshTimer = setInterval(() => { if (modal.open && modal.classList.contains('gd-evaluation') && gdDrive === id) refreshGdScores(id, true); else stopGdRefresh(); }, 10000); }
 function confirmClearGdPools(id) {
@@ -348,7 +350,7 @@ async function clearGdPools(id) {
     try {
         await api('/api/admin/drives/' + id + '/gd/clear', 'POST', {confirm:true});
         stopGdRefresh();
-        gdDrive = null;
+        gdPoolDrafts={};gdDrive = null;
         await reloadAdmin();
         modal.close();
         renderAdmin();
@@ -358,7 +360,7 @@ async function clearGdPools(id) {
 let gdDrive = null, gdRefreshTimer = null;
 function stopGdRefresh() { if (gdRefreshTimer) clearInterval(gdRefreshTimer); gdRefreshTimer = null; }
 async function refreshGdScores(id, quiet = false) {
-    if (id !== gdDrive || !modal.open || !modal.classList.contains('gd-evaluation') || document.activeElement?.classList?.contains('gd-score') || document.activeElement?.classList?.contains('gd-evaluator-input')) return;
+    if (Object.keys(gdPoolDrafts).some(k=>k.startsWith(id+':')) || editingGdEvaluator || id !== gdDrive || !modal.open || !modal.classList.contains('gd-evaluation') || document.activeElement?.classList?.contains('gd-score') || document.activeElement?.classList?.contains('gd-evaluator-input')) return;
     const previousScroll = document.querySelector('.gd-evaluation .gd-pools')?.scrollTop || 0;
     try {
         await reloadAdmin();
@@ -368,28 +370,51 @@ async function refreshGdScores(id, quiet = false) {
     } catch (e) { if (!quiet) handleError(e); }
 }
 function editGdEvaluator(id, poolIndex) { editingGdEvaluator = `${id}:${poolIndex}`; const d = state.drives.find(x => x.id === id); if (modal.open && d?.gd) { modal.innerHTML = gdMarkup(d); document.querySelector(`#gd-evaluator-${poolIndex}`)?.focus(); } }
-async function saveGdEvaluator(id, poolIndex) { const input = document.querySelector(`#gd-evaluator-${poolIndex}`), evaluatorName = input?.value.trim(); if (!evaluatorName) return toast('Enter the evaluator name before continuing.'); try { await api('/api/admin/drives/' + id + '/gd/evaluator', 'POST', { poolIndex, evaluatorName }); editingGdEvaluator = null; await reloadAdmin(); const d = state.drives.find(x => x.id === id); if (modal.open && d?.gd) modal.innerHTML = gdMarkup(d); toast(`Evaluator saved for Pool ${poolIndex < 26 ? String.fromCharCode(65 + poolIndex) : poolIndex + 1}.`); } catch (e) { handleError(e); } }
-async function saveGdShortlist(id, key, value) {
-    try {
-        const result = await api('/api/admin/drives/' + id + '/gd/score', 'POST', { studentKey: key, field: 'shortlisted', value });
-        const drive = state.drives.find(d => d.id === id);
-        if (drive?.gd && result.score) { drive.gd.scores ||= {}; drive.gd.scores[key] = result.score; }
-    } catch (e) { handleError(e); }
+async function saveGdEvaluator(id, poolIndex) { const input = document.querySelector(`#gd-evaluator-${poolIndex}`), evaluatorName = input?.value.trim(); if (!evaluatorName) return toast('Enter the evaluator name before continuing.'); try { await api('/api/admin/drives/' + id + '/gd/evaluator', 'POST', { poolIndex, evaluatorName }); if(gdPoolDrafts[`${id}:${poolIndex}`])gdPoolDrafts[`${id}:${poolIndex}`].evaluatorName=evaluatorName; editingGdEvaluator = null; await reloadAdmin(); const d = state.drives.find(x => x.id === id); if (modal.open && d?.gd) modal.innerHTML = gdMarkup(d); toast(`Evaluator saved for Pool ${poolIndex < 26 ? String.fromCharCode(65 + poolIndex) : poolIndex + 1}.`); } catch (e) { handleError(e); } }
+let gdPoolDrafts = {};
+function gdPoolDraft(id, pi) {
+    const d=state.drives.find(d=>d.id===id), pool=d?.gd?.pools[pi];
+    if(!pool)return null;
+    return gdPoolDrafts[`${id}:${pi}`] ||= {members:[...pool.members],evaluatorName:pool.evaluatorName,
+        baseline:JSON.parse(JSON.stringify(Object.fromEntries(pool.members.map(k=>[k,d.gd.scores?.[k]||{}])))),
+        scores:JSON.parse(JSON.stringify(Object.fromEntries(pool.members.map(k=>[k,{...(d.gd.scores?.[k]||{}),shortlisted:!!d.gd.scores?.[k]?.shortlisted}]))))};
 }
-async function saveGdScore(id, key, field, raw, input) {
-    if (raw !== '' && (!Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > 5)) return toast('Enter a score from 0 to 5.');
-    try {
-        const result = await api('/api/admin/drives/' + id + '/gd/score', 'POST', { studentKey: key, field, score: raw === '' ? null : Number(raw) });
-        const drive = state.drives.find(d => d.id === id);
-        if (drive?.gd && result.score) { drive.gd.scores ||= {}; drive.gd.scores[key] = result.score; }
-        const total = input?.closest('tr')?.querySelector('.gd-total');
-        if (total && result.score) total.textContent = result.score.total ?? 0;
-    } catch (e) { handleError(e); }
+function editGdPool(id,pi){gdPoolDraft(id,pi);const d=state.drives.find(d=>d.id===id);modal.innerHTML=gdMarkup(d);}
+function saveGdShortlist(id,key,value){const d=state.drives.find(d=>d.id===id), pi=d.gd.pools.findIndex(p=>p.members.includes(key));gdPoolDraft(id,pi).scores[key].shortlisted=value;}
+function saveGdScore(id,key,field,raw,input){
+    const d=state.drives.find(d=>d.id===id),pi=d.gd.pools.findIndex(p=>p.members.includes(key)),draft=gdPoolDraft(id,pi);
+    draft.scores[key][field]=raw.trim()===''?null:Number(raw);
+    const score=draft.scores[key], fields=['initiative','content','communication','bodyLanguage'];
+    score.total=fields.reduce((n,f)=>n+(Number.isFinite(score[f])?score[f]:0),0);
+    const valid=raw.trim()==='' || (Number.isFinite(Number(raw)) && Number(raw)>=0 && Number(raw)<=5);
+    input?.setCustomValidity?.(valid?'':'Enter a score from 0 to 5.');
+    const total=input?.closest('tr')?.querySelector('.gd-total');
+    if(total)total.textContent=fields.reduce((n,f)=>n+(Number.isFinite(score[f])?score[f]:0),0);
+}
+async function saveGdPool(id,pi,button){
+    const draft=gdPoolDraft(id,pi);if(!draft)return;
+    button.disabled=true;
+    const controls=[...(button.closest?.('.gd-pool')?.querySelectorAll('input,select,button')||[])];const disabledBefore=controls.map(el=>el.disabled);controls.forEach(el=>el.disabled=true);
+    try{const result=await api('/api/admin/drives/'+id+'/gd/pool-scores','POST',{poolIndex:pi,...draft});
+        state.drives.find(d=>d.id===id).gd=result.gd;delete gdPoolDrafts[`${id}:${pi}`];
+        const scroll=document.querySelector('.gd-pools')?.scrollTop||0;modal.innerHTML=gdMarkup(state.drives.find(d=>d.id===id));
+        const el=document.querySelector('.gd-pools');if(el)el.scrollTop=scroll;toast('Pool scores and recommendations saved.');
+    }catch(e){controls.forEach((el,i)=>el.disabled=disabledBefore[i]);button.disabled=false;handleError(e);}
 }
 function questionOverview() { const importAction = `<label class="import-question-action">Import question sets<input type="file" accept="application/json,.json" onchange="importQuestionFile(this)"></label>`; return heading('Question overview', 'Manage the default question sets for your recruitment drives.', importAction) + `<div class="notice">Language & Reasoning now includes both uploaded question sets. Use Update questions to review or edit in one scrollable window. Prompt Engineering is evaluated separately, without an answer key or automatic score.</div><div class="ready-grid">${TYPES.map(t => { let qs = state.questionSets[t.id], minutes = Number(state.durations?.[t.id] || durationMinutes(t.id)); return `<section class="card"><div class="card-body"><span class="chip">${qs.length} questions</span><h3>${t.name}</h3><p>${t.id === 'language' ? '20 Language Proficiency + 5 Data Interpretation questions' : t.description}</p><div class="duration-editor"><label for="duration-${t.id}">Test time (minutes)</label><div class="row"><input id="duration-${t.id}" type="number" min="1" max="180" step="1" value="${minutes}" aria-label="${t.name} timer in minutes"><button class="small" onclick="saveDuration('${t.id}')">Save time</button></div></div>${t.id === 'prompt' ? '<div class="bank-summary">Separate evaluation</div>' : `<div class="bank-summary">${qs.filter(keyReady).length} answer keys · ${qs.filter(q => q.type === 'text').length} written responses</div>`}<button class="primary small" onclick="openQuestionManager('${t.id}')">Update questions</button></div></section>`; }).join('')}</div>`; }
 function saveDuration(type) { let input = document.getElementById('duration-' + type), minutes = Number(input?.value); if (!Number.isInteger(minutes) || minutes < 1 || minutes > 180) { toast('Enter a whole number from 1 to 180 minutes.'); return; } state.durations[type] = minutes; state.sessions.forEach(s => { if (s.type === type && !s.closedAt && !(s.attempts || []).length) s.durationMinutes = minutes; }); save(); render(); toast('Test time updated. It applies to candidates who start a test using this setting.'); }
-function createTest(driveId, type) { let d = state.drives.find(d => d.id === driveId); if (!d || d.finishedAt || driveTests(driveId).some(s => s.type === type))
-    return; const input=document.querySelector('#testAvailableAt'); if (!input?.value || !input.reportValidity()) return; const availableAt=Date.parse(input.value+':00+05:30'); if (!Number.isFinite(availableAt)) return toast('Select a valid date and time.'); let qs = JSON.parse(JSON.stringify(driveQuestionSet(driveId, type))); let s = { id: uuid(), driveId, type, name: d.name + ' · ' + typeInfo(type).name, availableAt, start: Date.now(), closedAt: null, durationMinutes: Number(state.durations?.[type] || durationMinutes(type)), question: qs.map(q => q.text).join('\n\n'), questions: qs, attempts: [] }; state.sessions.unshift(s); state.activeId = s.id; expandedDrive = d.id; save(); modal.close(); render(); toast('Test link generated with the drive’s current question set.'); }
+async function createTest(driveId, type) {
+    const input=document.querySelector('#testAvailableAt');
+    if(!input?.value || !input.reportValidity())return;
+    const availableAt=Date.parse(input.value+':00+05:30');
+    if(!Number.isFinite(availableAt))return toast('Select a valid date and time.');
+    try {
+        await flushAdmin();
+        const result=await api('/api/admin/drives/'+driveId+'/tests','POST',{type,availableAt});
+        await reloadAdmin(); expandedDrive=driveId; modal.close(); renderAdmin();
+        toast(result.existing?'The existing test link is ready to copy.':'Test link generated and saved.');
+    } catch(e){handleError(e);}
+}
 function durationMinutes(value) { if (value && typeof value === 'object' && Number.isInteger(value.durationMinutes)) return value.durationMinutes; let type = typeof value === 'string' ? value : value?.type; return type === 'aptitude' ? 15 : type === 'language' ? 20 : 30; }
 function elapsedMinutes(a) { if (Number.isFinite(a.importedElapsedMinutes)) return Math.max(0, a.importedElapsedMinutes); return a.submittedAt ? Math.max(0, (a.submittedAt - a.startedAt) / 60000) : null; }
 function gradeAttempt(s, a) { if (Number.isFinite(a.importedScore)) return { total: a.importedScore, pending: 0, results: [] }; let total = 0, pending = 0; let results = (s.questions || []).map(q => { let v = a.responses?.[q.id], answered = answerPresent(q, v), manual = a.manualMarks?.[q.id]; if (manual !== undefined && Number.isFinite(manual)) {
@@ -563,6 +588,7 @@ function openResultsTable(id) { expire(); settlePromptSessions(); let s = state.
 } responseSession = id; responseFilters = { minMarks: '', minTime: '' }; responseColumnFilters = {}; reviewAttempt = null; modal.className = 'results-dialog'; modal.innerHTML = `<header class="results-header"><div class="row between"><div><h2>${typeInfo(s.type).name} · Responses</h2><p class="sub">${esc(state.drives.find(d => d.id === s.driveId)?.name || s.name)} · ${durationMinutes(s)}-minute test</p></div><button class="quiet" onclick="modal.close()" aria-label="Close responses">✕</button></div><p class="sub">Filter by marks and time taken. Totals with pending questions are provisional.</p></header><section class="results-controls response-controls"><div id="score-distribution" class="score-distribution"></div>${['aptitude','language'].includes(s.type) ? '<div class="shortlist-actions"><button class="primary small" onclick="shortlistFilteredCandidates()">Shortlist filtered candidates</button><button class="small" onclick="shortlistFilteredCandidates(true)">Revert shortlisting</button>'+(s.type==='aptitude'?'<button class="small candidate-review-action" data-test-id="'+s.id+'" onclick="openAptitudeReview(this.dataset.testId)">View candidate responses</button>':'')+'</div>' : ''}<div id="response-filter-error" class="filter-error" role="alert"></div></section><div id="response-active-filters" class="final-active-filters"></div><div class="results-scroll response-results-scroll" id="responseTable" onscroll="closeFinalColumnFilter()"></div><footer class="results-footer"><div><span id="responseCount" class="sub"></span><div class="bulk-note">Shortlisting applies to completed candidates with final marks. Revert clears shortlisting for this test, including candidates outside the current filters.</div></div><div class="export-actions"><button class="small" onclick="clearResponseFilters()">Clear filters</button><button class="small" onclick="exportResponsesExcel()">↓ Export filtered to Excel</button></div></footer>`; updateResponseTable(); if (!modal.open)
     modal.showModal(); }
 // Server adapter for the approved two-page UI. No assessment keys or candidate records ship in JS.
+let adminMutationEpoch = 0, adminReloadSequence = 0;
 let csrf = '', revision = 0, serverOffset = 0, adminPending = null, adminSaving = null, adminBlocked = false;
 let candidateDirty = false, candidateSaving = null, saveDelay = null, lastPoll = 0, expiryRequest = false;
 function serverNow() { return Date.now() + serverOffset; }
@@ -575,7 +601,7 @@ function render() { if (view === 'candidate')
 else
     renderAdmin(); }
 function statusMessage(message, error = false) { let el = document.querySelector('#connectionStatus'); if (el) { el.textContent = message; el.style.color = error ? '#af403c' : '#087e78'; } }
-async function api(path, method = 'GET', body) { let response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) }); let data = await response.json(); if (!response.ok) {
+async function api(path, method = 'GET', body) { if(method !== 'GET' && path.startsWith('/api/admin/')) adminMutationEpoch++; let response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) }); let data = await response.json(); if(method !== 'GET' && path.startsWith('/api/admin/')) adminMutationEpoch++; if (!response.ok) {
     let e = new Error(data.error || 'Request failed.');
     e.status = response.status;
     throw e;
@@ -609,8 +635,12 @@ async function flushAdmin() { if (adminSaving)
         }
     }
     catch (e) {
-        adminBlocked = true;
         adminPending = null;
+        if(e.status===409){
+            const latest=await api('/api/admin/state');revision=latest.revision;hydrate(latest.state);adminBlocked=false;
+            if(!modal.open)renderAdmin();
+            e.message='Another administrator saved a change. The latest data has been loaded; please retry your change.';
+        }else adminBlocked = true;
         statusMessage('Changes were not saved. ' + e.message + ' Reload before continuing.', true);
         throw e;
     }
@@ -622,7 +652,7 @@ finally {
 } }
 function handleError(error) { statusMessage(error.message || 'Connection unavailable. Retry without closing this page.', true); toast(error.message || 'Connection unavailable. Please retry.'); }
 async function reloadAdmin() { await flushAdmin(); if (adminBlocked)
-    throw new Error('Reload this page before continuing.'); let data = await api('/api/admin/state'); revision = data.revision; hydrate(data.state); }
+    throw new Error('Reload this page before continuing.'); const sequence=++adminReloadSequence, epoch=adminMutationEpoch; let data = await api('/api/admin/state'); if(sequence!==adminReloadSequence || epoch!==adminMutationEpoch || adminPending || data.revision<revision)return; revision = data.revision; hydrate(data.state); }
 function goAdmin(page = 'sessions') { if (view === 'candidate') {
     location.href = '/';
     return;
@@ -819,7 +849,8 @@ function loginView() { app.innerHTML = `<header class="masthead"><div class="too
     csrf = result.csrf;
     await reloadAdmin();
     view = 'sessions';
-    renderAdmin();    statusMessage('Signed in');
+    renderAdmin();
+    statusMessage('Signed in');
 }
 catch (e) {
     document.querySelector('#loginError').textContent = e.message;
@@ -870,7 +901,8 @@ async function bootstrap() { try {
     else if (auth.admin) {
         await reloadAdmin();
         view = 'overview';
-        render();        statusMessage('Connected');
+        render();
+        statusMessage('Connected');
     }
     else
         loginView();
@@ -1074,7 +1106,13 @@ function clearFinalScoreFilters() { finalScoreFilters[finalDriveCurrent]={};rere
 function rerenderFinalTable() { closeFinalColumnFilter(); let d=state.drives.find(x=>x.id===finalDriveCurrent),rows=combinedDriveScores(finalDriveCurrent),el=document.querySelector('#final-score-content');if(d&&el)el.innerHTML=finalTable(rows,d.id); }
 async function savePromptScoreForDrive(driveId,encodedStudentId,value) { let studentId=decodeURIComponent(encodedStudentId),test=state.sessions.find(x=>x.driveId===driveId&&x.type==='prompt'),attempt=test?.attempts.filter(a=>a.studentId.normalize('NFKC').toLowerCase()===studentId.normalize('NFKC').toLowerCase()).sort((a,b)=>(b.startedAt||0)-(a.startedAt||0))[0];if(!attempt)return toast('No Prompt Engineering response found for this candidate.');await savePromptScore(test.id,attempt.id,value);rerenderFinalTable(); }
 async function saveFinalDecision(driveId,encodedStudentId,outcome) { try { let studentId=decodeURIComponent(encodedStudentId);await api('/api/admin/drives/'+driveId+'/candidate-decision','POST',{studentId,outcome});let d=state.drives.find(x=>x.id===driveId);d.finalDecisions||={};let entry=d.finalDecisions[studentId.normalize('NFKC').toLowerCase()]||={};entry.outcome=outcome==='none'?null:outcome;rerenderFinalTable(); }catch(e){handleError(e);} }
-async function shortlistFilteredFinal() { try { if(!await flushFinalInterviewDrafts())return; } catch(e){return handleError(e);} let id=finalDriveCurrent,rows=finalRowsFiltered(combinedDriveScores(id));if(!rows.length)return toast('No candidates match the current filters.');try{let result=await api('/api/admin/drives/'+id+'/final-shortlist','POST',{studentIds:rows.map(r=>r.studentId),value:true}),d=state.drives.find(x=>x.id===id);d.finalDecisions||={};rows.forEach(r=>{let entry=d.finalDecisions[r.studentId.normalize('NFKC').toLowerCase()]||={};entry.interviewShortlisted=true;entry.interviewRemarks='';entry.interviewManual=false;});rerenderFinalTable();toast(result.changed+' candidates shortlisted for interview.');}catch(e){handleError(e);} }
+async function shortlistFilteredFinal() {
+    try{if(!await flushFinalInterviewDrafts())return;const id=finalDriveCurrent,rows=finalRowsFiltered(combinedDriveScores(id));
+        if(!rows.length)return toast('No candidates match the current filters.');
+        const result=await api('/api/admin/drives/'+id+'/final-shortlist','POST',{studentIds:rows.map(r=>r.studentId),value:true});
+        await reloadAdmin();rerenderFinalTable();toast(result.changed+' candidates shortlisted for interview.');
+    }catch(e){handleError(e);}
+}
 async function revertFilteredFinal() { try { if(!await flushFinalInterviewDrafts())return; } catch(e){return handleError(e);} let id=finalDriveCurrent,rows=finalRowsFiltered(combinedDriveScores(id));if(!rows.length)return toast('No candidates match the current filters.');try{let result=await api('/api/admin/drives/'+id+'/final-shortlist','POST',{studentIds:rows.map(r=>r.studentId),value:false}),d=state.drives.find(x=>x.id===id);rows.forEach(r=>{let entry=d.finalDecisions?.[r.studentId.normalize('NFKC').toLowerCase()];if(entry){entry.interviewShortlisted=false;entry.interviewRemarks='';entry.interviewManual=false;}});rerenderFinalTable();toast(result.changed+' interview shortlist statuses reverted.');}catch(e){handleError(e);} }
 function toggleFinalExportMenu(){const menu=document.querySelector('#final-export-menu');menu.hidden=!menu.hidden;}
 async function exportFinalScores(mode='all') {
@@ -1287,4 +1325,27 @@ async function flushFinalInterviewDrafts() {
     }
     if(entries.length)rerenderFinalTable();
     return true;
+}
+
+let finalRefreshBusy=false;
+setInterval(async()=>{
+    if(finalRefreshBusy || adminPending || adminSaving || Object.keys(finalInterviewDrafts).length || !modal.open || !modal.classList.contains('final-scores-dialog'))return;
+    if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName) && modal.contains?.(document.activeElement))return;
+    if(document.querySelector('#final-column-filter'))return;
+    finalRefreshBusy=true;
+    const id=finalDriveCurrent;
+    try{await reloadAdmin();if(modal.open && modal.classList.contains('final-scores-dialog') && id===finalDriveCurrent){
+        const el=document.querySelector('.results-scroll'),top=el?.scrollTop||0,left=el?.scrollLeft||0;
+        rerenderFinalTable();const next=document.querySelector('.results-scroll');if(next){next.scrollTop=top;next.scrollLeft=left;}
+    }}catch(e){statusMessage(e.message,true);}finally{finalRefreshBusy=false;}
+},10000);
+
+function closeGdPools(){
+    if(Object.keys(gdPoolDrafts).some(k=>k.startsWith(gdDrive+':')) && !confirm('This pool has unsaved changes. Close the window? Your entries remain on this device until you save or reload.'))return;
+    stopGdRefresh();modal.close();
+}
+
+async function reloadGdPool(id,pi){
+    if(!confirm('Discard unsaved edits in this pool and load its saved scores?'))return;
+    try{await reloadAdmin();delete gdPoolDrafts[`${id}:${pi}`];modal.innerHTML=gdMarkup(state.drives.find(d=>d.id===id));}catch(e){handleError(e);}
 }
