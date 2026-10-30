@@ -337,7 +337,7 @@ class ApplicationTests(unittest.TestCase):
         response = self.admin.post(url + '/shortlist', json={}, headers={'X-CSRF-Token': self.csrf})
         self.assertEqual(response.json['changed'], 1)
 
-    def test_prompt_closes_only_after_all_started_candidates_submit_and_exports(self):
+    def test_prompt_submissions_leave_session_open_and_exports_available(self):
         first, csrf1, a = self.candidate('prompt', name='First Candidate', student='P1')
         second, csrf2, _ = self.candidate('prompt', name='Second Candidate', student='P2')
         url = f'/api/admin/tests/{self.tests["prompt"]}/word'
@@ -353,6 +353,35 @@ class ApplicationTests(unittest.TestCase):
             self.assertIn('with <markup> & symbols', '\n'.join(p.text for p in doc.paragraphs))
             doc = Document(io.BytesIO(archive.read('Second Candidate_P2.docx')))
             self.assertIn('(No answer entered)', '\n'.join(p.text for p in doc.paragraphs))
+
+    def test_prompt_late_join_timeout_and_admin_stop_are_independent(self):
+        first, csrf1, a = self.candidate('prompt', student='FIRST')
+        self.answer(first, csrf1, 'prompt', {'q1': 'First response'}, submit=True)
+        second, csrf2, b = self.candidate('prompt', student='LATER')
+        with self.app.extensions['store'].transaction() as tx:
+            attempt = next(item for item in tx.all_attempts(self.tests['prompt']) if item['id'] == b['id'])
+            attempt['deadline'] = int(time.time() * 1000) - 1000
+        current = self.state()
+        test = next(t for t in current['state']['sessions'] if t['id'] == self.tests['prompt'])
+        self.assertIsNone(test['closedAt'])
+        expired = next(item for item in test['attempts'] if item['id'] == b['id'])
+        self.assertEqual(expired['reason'], 'timeout')
+        self.assertTrue(expired['submittedAt'])
+        third, csrf3, c = self.candidate('prompt', student='AFTER-TIMEOUT')
+        current = self.state()
+        test = next(t for t in current['state']['sessions'] if t['id'] == self.tests['prompt'])
+        test['closedAt'] = int(time.time() * 1000)
+        stopped = self.put_state(current['state'], current['revision'])
+        self.assertEqual(stopped.status_code, 200, stopped.json)
+        test = next(t for t in stopped.json['state']['sessions'] if t['id'] == self.tests['prompt'])
+        self.assertTrue(test['closedAt'])
+        active = next(item for item in test['attempts'] if item['id'] == c['id'])
+        self.assertEqual(active['reason'], 'admin')
+        self.assertTrue(active['submittedAt'])
+        blocked = self.app.test_client()
+        csrf = blocked.get('/api/auth/session').json['csrf']
+        result = blocked.post(f'/api/candidate/{self.tests["prompt"]}/start', json={'studentId': 'FIRST'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(result.status_code, 400)
 
     def test_fifty_concurrent_starts_saves_and_submissions(self):
         def worker(number):
