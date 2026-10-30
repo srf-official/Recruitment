@@ -122,8 +122,6 @@ class Transaction:
             for a in candidates:
                 if not a.get("submittedAt") and now >= a["deadline"]:
                     a.update(submittedAt=a["deadline"], reason="timeout")
-            if test["type"] == "prompt" and candidates and all(a.get("submittedAt") for a in candidates):
-                test.update(closedAt=max(a["submittedAt"] for a in candidates), endReason="all-submitted")
 
     def stop(self, test):
         self.expire(test["id"])

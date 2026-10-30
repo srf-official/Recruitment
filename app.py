@@ -948,7 +948,7 @@ def create_app(settings=None):
         with store.transaction() as tx:
             test = test_required(tx, test_id)
             tx.expire(test_id)
-            require(test['type'] == 'prompt' and test.get('closedAt'), 'Finish or stop the prompt test before exporting.')
+            require(test['type'] == 'prompt', 'This is not a Prompt Engineering test.')
             candidates = tx.all_attempts(test_id)
             require(candidates and all(a.get('submittedAt') for a in candidates), 'Responses are not complete.')
             drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
@@ -963,7 +963,7 @@ def create_app(settings=None):
         with store.transaction() as tx:
             test = test_required(tx, test_id)
             tx.expire(test_id)
-            require(test['type'] == 'prompt' and test.get('closedAt'), 'Finish or stop the prompt test before exporting.')
+            require(test['type'] == 'prompt', 'This is not a Prompt Engineering test.')
             candidates = tx.all_attempts(test_id)
             require(candidates and all(a.get('submittedAt') for a in candidates), 'Responses are not complete.')
             drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
