@@ -577,6 +577,60 @@ class ApplicationTests(unittest.TestCase):
                                json={'studentIds': ['GD-SEED'], 'mode': 'interview'}, headers=headers)
         self.assertEqual(empty.status_code, 400)
 
+    def test_filled_response_import_preview_validation_and_preservation(self):
+        from datetime import datetime, timedelta
+        from openpyxl import Workbook
+        current = self.state()
+        drive = uid()
+        current['state']['drives'].append({'id': drive, 'name': 'Import answers'})
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        url = f'/api/admin/drives/{drive}/aptitude/responses-import'
+        # Long headings are truncated in the actual Microsoft Forms export.
+        text = 'A synthetic multiple choice question with a long heading for import matching'
+        current = self.state()
+        current['state']['questionSets']['aptitude'] = [{**question(), 'text': text}]
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        def workbook(answer='Two', duplicate=False):
+            book=Workbook();sheet=book.active;sheet.title='Input Data'
+            sheet.append(['Full Name','Student ID (College Reg. No.)','Start time','Completion time',text[:60]])
+            start=datetime(2026,9,25,12,0)
+            sheet.append(['Imported Student','IMP1',start,start+timedelta(minutes=7),answer])
+            if duplicate: sheet.append(['Duplicate','imp1',start,start+timedelta(minutes=7),'One'])
+            stream=io.BytesIO();book.save(stream);return stream.getvalue()
+        def post(raw, **fields):
+            return self.admin.post(url,data={'file':(io.BytesIO(raw),'answers.xlsx'),**fields},headers={'X-CSRF-Token':self.csrf})
+        raw=workbook()
+        preview=post(raw);self.assertEqual(preview.status_code,200,preview.json)
+        self.assertEqual(preview.json['records'][0]['score'],2)
+        self.assertEqual(preview.json['errors'],[])
+        self.assertFalse(any(t['driveId']==drive for t in self.state()['state']['sessions']))
+        saved=post(raw,confirm='true',fingerprint=preview.json['fingerprint'])
+        self.assertEqual(saved.status_code,200,saved.json)
+        self.assertEqual(post(raw,confirm='true',fingerprint=preview.json['fingerprint']).status_code,400)
+        current=self.state();test=next(t for t in current['state']['sessions'] if t['driveId']==drive)
+        self.assertEqual(len(test['attempts']),1)
+        self.assertEqual(test['attempts'][0]['responses'],{'q1':[1]})
+        self.assertFalse(test['attempts'][0]['shortlisted'])
+        with self.app.extensions['store'].transaction() as tx:
+            a=tx.all_attempts(test['id'])[0];a['shortlisted']=True;a['shortlistRemarks']='Keep existing decision'
+            d=next(d for d in tx.state['drives'] if d['id']==drive);d['finalDecisions']={'imp1':{'outcome':'selected'}}
+        raw=workbook('One');preview=post(raw)
+        self.assertEqual(preview.json['records'][0]['score'],-1)
+        self.assertEqual(preview.json['records'][0]['action'],'Update')
+        saved=post(raw,confirm='true',fingerprint=preview.json['fingerprint']);self.assertEqual(saved.status_code,200,saved.json)
+        current=self.state();test=next(t for t in current['state']['sessions'] if t['driveId']==drive)
+        self.assertEqual(len(test['attempts']),1);self.assertTrue(test['attempts'][0]['shortlisted'])
+        self.assertEqual(test['attempts'][0]['shortlistRemarks'],'Keep existing decision')
+        self.assertEqual(next(d for d in current['state']['drives'] if d['id']==drive)['finalDecisions']['imp1']['outcome'],'selected')
+        for invalid in (workbook('Not an option'),workbook(duplicate=True)):
+            preview=post(invalid);self.assertTrue(preview.json['errors'])
+            self.assertEqual(post(invalid,confirm='true',fingerprint=preview.json['fingerprint']).status_code,400)
+        guest=self.app.test_client();guest_csrf=guest.get('/api/auth/session').json['csrf']
+        self.assertEqual(guest.post(url,json={},headers={'X-CSRF-Token':guest_csrf}).status_code,401)
+        online=f'/api/admin/drives/{self.drive}/aptitude/responses-import'
+        result=self.admin.post(online,data={'file':(io.BytesIO(workbook()),'answers.xlsx')},headers={'X-CSRF-Token':self.csrf})
+        self.assertEqual(result.status_code,400)
+
     def test_response_column_filters_share_shortlist_and_export_behavior(self):
         from urllib.parse import urlencode
         headers = {'X-CSRF-Token': self.csrf}

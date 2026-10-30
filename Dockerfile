@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 10001 --create-home appuser
-COPY app.py domain.py store.py configuration.py exports.py ./
+COPY app.py domain.py store.py configuration.py exports.py response_import.py ./
 COPY static/ ./static/
 COPY scripts/ ./scripts/
 USER 10001:10001

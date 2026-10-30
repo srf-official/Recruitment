@@ -75,7 +75,7 @@ def create_app(settings=None):
                 return problem
             if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
                 is_aptitude_import = (request.path.startswith('/api/admin/drives/') and
-                                      request.path.endswith('/aptitude/import'))
+                                      request.path.endswith(('/aptitude/import', '/aptitude/responses-import')))
                 if request.mimetype != 'application/json' and not (is_aptitude_import and request.mimetype == 'multipart/form-data'):
                     return jsonify(error='JSON request required.'), 415
                 expected = session.get('csrf')
@@ -280,6 +280,56 @@ def create_app(settings=None):
                 token_hash = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
                 tx.add_attempt(test_id, attempt, key_hash, token_hash)
             return jsonify(imported=len(records), testId=test_id, serverNow=now)
+
+    @app.post('/api/admin/drives/<drive_id>/aptitude/responses-import')
+    @admin
+    def import_aptitude_responses(drive_id):
+        from response_import import read_responses, preview_fingerprint
+        uploaded = request.files.get('file')
+        require(uploaded is not None and uploaded.filename.lower().endswith('.xlsx'), 'Choose an .xlsx response workbook.')
+        raw = uploaded.read()
+        with store.transaction() as tx:
+            drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
+            require(drive is not None, 'Drive not found.')
+            require(not drive.get('finishedAt'), 'Cannot import into a finished drive.')
+            test = next((s for s in tx.state['sessions'] if s['driveId'] == drive_id and s['type'] == 'aptitude'), None)
+            existing = tx.all_attempts(test['id']) if test else []
+            require(not test or test.get('historicalImport') or not existing, 'This drive has online Aptitude attempts; importing would overwrite live test data.')
+            questions = copy.deepcopy(test.get('questions') if test and test.get('questions') else tx.state['questionSets']['aptitude'])
+            records, errors, mapping = read_responses(raw, questions)
+            fingerprint = preview_fingerprint(raw, questions, (tx.version, existing))
+            by_key = {student_key(a['studentId']): a for a in existing}
+            preview = [{'name': r['name'], 'studentId': r['studentId'], 'score': grade(questions, r)['total'],
+                        'minutes': r['importedElapsedMinutes'], 'action': 'Update' if student_key(r['studentId']) in by_key else 'Add'} for r in records]
+            if request.form.get('confirm') != 'true':
+                return jsonify(records=preview, errors=errors, mapping=mapping, fingerprint=fingerprint,
+                               maxScore=sum(q['correctScore'] for q in questions), serverNow=now_ms())
+            require(not errors, 'Resolve all worksheet errors before importing.')
+            require(hmac.compare_digest(request.form.get('fingerprint', ''), fingerprint), 'Drive data or answer keys changed. Preview the file again.')
+            now = now_ms()
+            if not test:
+                test = {'id': str(uuid.uuid4()), 'driveId': drive_id, 'type': 'aptitude',
+                        'name': drive['name'] + ' · Aptitude', 'start': now, 'closedAt': now,
+                        'durationMinutes': tx.state.get('durations', {}).get('aptitude', 15), 'questions': questions}
+                tx.state['sessions'].insert(0, test)
+            test.update(questions=questions, historicalImport=True, responseImport=True, closedAt=now, endReason='imported')
+            for record in records:
+                old = by_key.get(student_key(record['studentId']))
+                started = now - int(record['importedElapsedMinutes'] * 60000)
+                if old is not None:
+                    # Preserve identity, shortlist decisions and all later-round data.
+                    old.update(responses=record['responses'], importedElapsedMinutes=record['importedElapsedMinutes'],
+                               manualMarks={}, questionOrder=[q['id'] for q in questions], optionOrder={},
+                               startedAt=started, submittedAt=now, deadline=now, reason='imported', importedSource='Input Data')
+                    old.pop('importedScore', None)
+                else:
+                    attempt = {'id': str(uuid.uuid4()), **record, 'startedAt': started, 'submittedAt': now,
+                               'deadline': now, 'reason': 'imported', 'sequence': 0, 'manualMarks': {},
+                               'shortlisted': False, 'importedSource': 'Input Data',
+                               'questionOrder': [q['id'] for q in questions], 'optionOrder': {}}
+                    tx.add_attempt(test['id'], attempt, hashlib.sha256(student_key(record['studentId']).encode()).hexdigest(),
+                                   hashlib.sha256(secrets.token_bytes(32)).hexdigest())
+            return jsonify(imported=len(records), testId=test['id'], serverNow=now)
 
     def candidate_attempt(tx, test):
         token = request.cookies.get('attempt_' + test['id'], '')

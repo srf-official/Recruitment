@@ -249,11 +249,32 @@ function commitManagerQuestions() { if (managerDrive) {
 }
 else
     state.banks[managerType] = bankText(managerType); }
+let responseImportPending = null;
+async function importFilledAptitude(driveId, input) {
+    const file=input.files[0];input.value='';if(!file)return;
+    try {
+        await reloadAdmin();
+        const data=new FormData();data.append('file',file);
+        const response=await fetch('/api/admin/drives/'+driveId+'/aptitude/responses-import',{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf},body:data});
+        const result=await response.json();if(!response.ok)throw new Error(result.error||'Import preview failed.');
+        responseImportPending={driveId,file,fingerprint:result.fingerprint};
+        dialog('Preview Aptitude response import', '<p>'+result.records.length+' candidate rows · '+result.mapping.length+' questions · maximum '+result.maxScore+' marks.</p><p class="sub">Existing candidates are matched by student ID. Their identity, shortlist status, GD and later-round data are preserved. Imported answers replace historical answers and manual marks for matched candidates. New candidates are not automatically shortlisted.</p><details><summary>Question column mapping</summary>'+result.mapping.map(m=>'<p>'+esc(m.column)+' → '+esc(m.question)+'</p>').join('')+'</details>'+(result.errors.length?'<div class="inline-error"><b>Fix these worksheet errors before importing:</b>'+result.errors.map(e=>'<p>'+esc(e)+'</p>').join('')+'</div>':'')+'<div style="max-height:45vh;overflow:auto"><table><thead><tr><th>Name</th><th>Student ID</th><th>Score</th><th>Minutes</th><th>Action</th></tr></thead><tbody>'+result.records.map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+esc(r.studentId)+'</td><td>'+r.score+'</td><td>'+r.minutes+'</td><td>'+r.action+'</td></tr>').join('')+'</tbody></table></div>','<button onclick="modal.close()">Cancel</button><button class="primary" id="confirm-response-import" '+(result.errors.length?'disabled':'')+' onclick="confirmFilledAptitude(this)">Confirm import</button>',true);
+    } catch(e){handleError(e);}
+}
+async function confirmFilledAptitude(button) {
+    if(!responseImportPending)return;button.disabled=true;
+    try {const pending=responseImportPending,data=new FormData();data.append('file',pending.file);data.append('confirm','true');data.append('fingerprint',pending.fingerprint);
+        const response=await fetch('/api/admin/drives/'+pending.driveId+'/aptitude/responses-import',{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf},body:data});
+        const result=await response.json();if(!response.ok)throw new Error(result.error||'Import failed.');
+        responseImportPending=null;modal.close();await reloadAdmin();render();toast(result.imported+' candidate responses imported and scored.');
+    }catch(e){handleError(e);button.disabled=false;}
+}
 function testRow(d, t) {
     let s = driveTests(d.id).find(s => s.type === t.id), qs = driveQuestionSet(d.id, t.id);
     let questionSummary = s?.historicalImport ? 'Historical results · 15 minutes' : `${qs.length} questions · ${durationMinutes(t.id)} minutes`;
     let header = `<section class="test-row"><div class="row between"><div><h3>${t.name}</h3><p>${questionSummary}${s ? ` · ${s.attempts.length} candidates · ${s.attempts.filter(a => a.submittedAt).length} submitted` : ''}</p></div><div class="row">${s ? badge(s.closedAt ? 'Finished' : 'Live') : badge('Not started')}${s?.historicalImport ? '' : `<button class="small" onclick="openQuestionManager('${t.id}','${d.id}')">Update questions</button>`}</div></div>`;
-    if (s?.historicalImport) return header + `<div class="notice">Historical Aptitude results imported from the Shortlist sheet. Recorded marks and completion times are preserved; all imported candidates are shortlisted.</div><div class="row" style="margin-top:12px"><button class="small" onclick="showResponses('${s.id}')">View responses</button></div></section>`;
+    if(t.id === 'aptitude' && !d.finishedAt) header += `<div class="row" style="margin:12px 0"><button class="small candidate-review-action" onclick="document.getElementById('responses-import-${d.id}').click()">Import candidate responses</button><input id="responses-import-${d.id}" type="file" accept=".xlsx" hidden onchange="importFilledAptitude('${d.id}',this)"></div>`;
+    if (s?.historicalImport) return header + `<div class="notice">${s.responseImport ? 'Candidate answers imported from Input Data and scored against the saved Aptitude answer key. Existing shortlist decisions are preserved.' : 'Historical Aptitude results imported from the Shortlist sheet. Recorded marks and completion times are preserved; all imported candidates are shortlisted.'}</div><div class="row" style="margin-top:12px"><button class="small" onclick="showResponses('${s.id}')">View responses</button></div></section>`;
     if (s) return header + `${s.availableAt ? `<p class="test-activation">Opens ${esc(scheduleDate(s.availableAt))}</p>` : ''}<div class="linkbox"><input aria-label="${t.name} test link" readonly value="${esc(testLink(s))}"><button class="small" onclick="copyLink('${s.id}')">Copy link</button></div><div class="row" style="margin-top:12px"><button class="small" onclick="openCandidate('${s.id}')">Candidate preview ↗</button><button class="small" onclick="showResponses('${s.id}')">View responses</button>${!s.closedAt ? `<button class="danger small" onclick="confirmStop('${s.id}')">Stop test</button>` : ''}</div></section>`;
     let importOption = t.id === 'aptitude' ? `<button class="small" onclick="document.getElementById('aptitude-import-${d.id}').click()">Import previous results</button><input id="aptitude-import-${d.id}" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onchange="importAptitudeResults('${d.id}',this)">` : '';
     return header + `<div class="row" style="margin-top:15px">${importOption}<button class="primary small" ${d.finishedAt ? 'disabled' : ''} onclick="generateTest('${d.id}','${t.id}')">Generate link for ${t.name}</button>${!qs.length ? '<span class="sub">Add questions before candidates can start.</span>' : ''}</div></section>`;
