@@ -517,6 +517,34 @@ class ApplicationTests(unittest.TestCase):
         bad = self.admin.get(url + '/excel?' + urlencode({'marksOp': 'between', 'minMarks': 20, 'maxMarks': 10}))
         self.assertEqual(bad.status_code, 400)
 
+    def test_performance_report_uses_original_answer_indices_after_shuffle(self):
+        for kind in ('aptitude', 'language'):
+            if kind == 'language':
+                current = self.state()
+                test = next(t for t in current['state']['sessions'] if t['type'] == kind)
+                test['questions'] = [question()]
+                self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+            for display_index, expected_score, expected_status in ((0, 2, 'Correct'), (1, -1, 'Wrong')):
+                student = f'REPORT-{kind}-{display_index}'
+                client, csrf, attempt = self.candidate(kind, student=student)
+                with self.app.extensions['store'].transaction() as tx:
+                    stored = next(a for a in tx.all_attempts(self.tests[kind]) if a['id'] == attempt['id'])
+                    stored['optionOrder']['q1'] = [1, 0]
+                result = client.post(f'/api/candidate/{self.tests[kind]}/answer',
+                                    json={'responses': {'q1': [display_index]}, 'sequence': 1, 'submit': True},
+                                    headers={'X-CSRF-Token': csrf})
+                self.assertEqual(result.status_code, 200, result.json)
+                report = self.admin.get(f'/api/admin/drives/{self.drive}/candidate-responses?studentId={student}')
+                self.assertEqual(report.status_code, 200, report.json)
+                section = next(s for s in report.json['sections'] if s['type'] == kind)
+                item = section['questions'][0]
+                selected = [c for c in item['choices'] if c['selected']]
+                self.assertEqual([c['text'] for c in selected], ['Two' if display_index == 0 else 'One'])
+                self.assertEqual(selected[0]['correct'], display_index == 0)
+                self.assertEqual(item['score'], expected_score)
+                self.assertEqual(item['status'], expected_status)
+                self.assertEqual(section['score'], expected_score)
+
     def test_performance_report_prompt_and_split_final_scores(self):
         headers = {'X-CSRF-Token': self.csrf}
         client, csrf, _ = self.candidate('prompt', student='GD-SEED')
