@@ -818,7 +818,7 @@ def create_app(settings=None):
                         permutation = option_order.get(q['id']) or list(range(len(options)))
                         selected = response if isinstance(response, list) else ([response] if type(response) is int else [])
                         correct_indices = q.get('key', [])
-                        choices = [{'text': options[original], 'selected': display_index in selected,
+                        choices = [{'text': options[original], 'selected': original in selected,
                                     'correct': original in correct_indices}
                                    for display_index, original in enumerate(permutation)
                                    if type(original) is int and 0 <= original < len(options)]
