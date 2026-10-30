@@ -295,7 +295,13 @@ def create_app(settings=None):
             test = next((s for s in tx.state['sessions'] if s['driveId'] == drive_id and s['type'] == 'aptitude'), None)
             existing = tx.all_attempts(test['id']) if test else []
             require(not test or test.get('historicalImport') or not existing, 'This drive has online Aptitude attempts; importing would overwrite live test data.')
-            questions = copy.deepcopy(test.get('questions') if test and test.get('questions') else tx.state['questionSets']['aptitude'])
+            questions = copy.deepcopy(tx.state['questionSets']['aptitude'])
+            if test and test.get('questions') and existing:
+                # Refresh marking only when saved response indices still mean the same thing.
+                def answer_structure(items):
+                    return {q['id']: {field: q.get(field) for field in ('type', 'options', 'pairs')} for q in items}
+                require(answer_structure(test['questions']) == answer_structure(questions),
+                        'Question or option structure changed since the previous import. Restore the matching question set before refreshing its answer key.')
             records, errors, mapping = read_responses(raw, questions)
             fingerprint = preview_fingerprint(raw, questions, (tx.version, existing))
             by_key = {student_key(a['studentId']): a for a in existing}
