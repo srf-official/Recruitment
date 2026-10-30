@@ -1097,10 +1097,10 @@ function finalTable(rows, driveId) {
     return `<div class="final-score-toolbar"><span class="sub"><strong>${visible.length}</strong> of ${rows.length} candidates shown</span><div class="row"><button class="primary small" onclick="shortlistFilteredFinal()" ${visible.length ? '' : 'disabled'}>Shortlist filtered for interview</button><button class="small" onclick="revertFilteredFinal()" ${visible.length ? '' : 'disabled'}>Revert interview shortlist</button><button class="small" onclick="clearFinalScoreFilters()">Clear filters</button><div class="final-export-control"><button class="small" onclick="toggleFinalExportMenu()" ${visible.length ? '' : 'disabled'}>↓ Export to Excel ▾</button><div id="final-export-menu" class="final-export-menu" hidden><small>Current filtered view</small><button onclick="exportFinalScores('all')">Export all candidate details</button><button onclick="exportFinalScores('interview')">Export interview</button></div></div></div></div>${chips ? '<div class="final-active-filters">'+chips+'</div>' : ''}<div class="results-scroll" onscroll="closeFinalColumnFilter()"><table class="final-scores-table">${finalHeader()}<tbody>${body || '<tr><td colspan="'+(FINAL_COLUMNS.length+1)+'" class="results-empty">No candidates match these filters.</td></tr>'}</tbody></table></div>`;
 }
 function finalBooleanBadge(value) { return '<span class="final-boolean '+(value?'is-yes':'is-no')+'">'+(value?'Yes':'No')+'</span>'; }
-function setFinalScoreFilter(key, value) {
-    const filters = finalScoreFilters[finalDriveCurrent] ||= {};
-    if (value) filters[key] = value; else delete filters[key];
-    rerenderFinalTable();
+async function setFinalScoreFilter(key, value) {
+    const id=finalDriveCurrent,filters=finalScoreFilters[id] ||= {};
+    if(value)filters[key]=value;else delete filters[key];
+    try{await reloadAdmin();if(finalDriveCurrent===id && modal.classList.contains('final-scores-dialog'))rerenderFinalTable();}catch(e){handleError(e);}
 }
 function clearFinalScoreFilters() { finalScoreFilters[finalDriveCurrent]={};rerenderFinalTable(); }
 function rerenderFinalTable() { closeFinalColumnFilter(); let d=state.drives.find(x=>x.id===finalDriveCurrent),rows=combinedDriveScores(finalDriveCurrent),el=document.querySelector('#final-score-content');if(d&&el)el.innerHTML=finalTable(rows,d.id); }
