@@ -720,9 +720,10 @@ def create_app(settings=None):
                 score = {'shortlisted': values['shortlisted']}
                 for field in ('initiative', 'content', 'communication', 'bodyLanguage'):
                     value = values.get(field)
-                    require(type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 5, 'Enter all four scores from 0 to 5 for every candidate.')
-                    score[field] = value
-                score['total'] = round(sum(score[f] for f in ('initiative', 'content', 'communication', 'bodyLanguage')), 2)
+                    require(value is None or (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 5), 'Enter a score from 0 to 5 or leave it blank.')
+                    if value is not None:
+                        score[field] = value
+                score['total'] = round(sum(score.get(f, 0) for f in ('initiative', 'content', 'communication', 'bodyLanguage')), 2)
                 validated[key] = score
             gd.setdefault('scores', {}).update(validated)
             pool['scoresSavedAt'] = now_ms()
@@ -818,6 +819,7 @@ def create_app(settings=None):
             row['outcome'] = decision.get('outcome') or 'none'
             row['interviewRemarks'] = decision.get('interviewRemarks', '')
             row['interviewer'] = decision.get('interviewer', '')
+            row['interviewComments'] = decision.get('interviewComments', '')
             row['gdEvaluator'] = next((p.get('evaluatorName', '') for p in drive.get('gd', {}).get('pools', []) if key in p.get('members', [])), '')
             row.pop('_latest', None)
             row.pop('_latest_name', None)
@@ -958,7 +960,7 @@ def create_app(settings=None):
         data = request.get_json()
         require(isinstance(data, dict), 'Invalid decision request.')
         student = clean_text(data.get('studentId'), 60, 'student ID')
-        require(any(field in data for field in ('outcome', 'interviewShortlisted', 'interviewRemarks', 'interviewManual', 'interviewer')),
+        require(any(field in data for field in ('outcome', 'interviewShortlisted', 'interviewRemarks', 'interviewManual', 'interviewer', 'interviewComments')),
                 'Provide a candidate decision.')
         if 'outcome' in data:
             require(data['outcome'] in {'none', 'selected', 'on-hold', 'rejected'}, 'Choose a valid candidate status.')
@@ -973,6 +975,8 @@ def create_app(settings=None):
             decision = drive.setdefault('finalDecisions', {}).setdefault(key, {})
             if 'outcome' in data:
                 decision['outcome'] = None if data['outcome'] == 'none' else data['outcome']
+            if 'interviewComments' in data:
+                decision['interviewComments'] = clean_text(data['interviewComments'], 10000, 'interview comments')
             if 'interviewer' in data:
                 interviewer = clean_text(data['interviewer'], 100, 'interviewer name')
                 members = drive.get('members', [])

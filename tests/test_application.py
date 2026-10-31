@@ -103,6 +103,19 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(saved.json['gd']['scores'][pool['members'][0]]['total'], 14)
         self.assertTrue(saved.json['gd']['pools'][0]['scoresSavedAt'])
         self.assertEqual(self.admin.post(root+'/pool-scores', json=payload, headers=headers).status_code, 409)
+        payload['baseline'] = saved.json['gd']['scores']
+        payload['scores'] = {k: {'initiative': None, 'content': 3, 'communication': None, 'bodyLanguage': None, 'shortlisted': False} for k in pool['members']}
+        partial = self.admin.post(root+'/pool-scores', json=payload, headers=headers)
+        self.assertEqual(partial.status_code, 200, partial.json)
+        value = partial.json['gd']['scores'][pool['members'][0]]
+        self.assertNotIn('initiative', value)
+        self.assertEqual(value['total'], 3)
+        payload['baseline'] = partial.json['gd']['scores']
+        payload['scores'] = {k: {'shortlisted': False} for k in pool['members']}
+        blank = self.admin.post(root+'/pool-scores', json=payload, headers=headers)
+        self.assertEqual(blank.status_code, 200, blank.json)
+        self.assertNotIn('content', blank.json['gd']['scores'][pool['members'][0]])
+
 
     def tearDown(self):
         self.app.extensions['store'].engine.dispose()
@@ -513,12 +526,15 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.admin.post(url, json={'studentId': student, 'interviewer': 'Another evaluator'}, headers=headers).status_code, 200)
         self.admin.post(url, json=data, headers=headers)
+        comment = self.admin.post(url, json={'studentId': student, 'interviewComments': 'Strong interview performance'}, headers=headers)
+        self.assertEqual(comment.status_code, 200, comment.json)
         exported = self.admin.post(base + '/final/export', json={'studentIds': [student]}, headers=headers)
         sheet = load_workbook(io.BytesIO(exported.data)).active
         values = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))
         self.assertEqual(values['GD evaluator'], 'GD Evaluator')
         self.assertEqual(values['Interview shortlisted'], 'Yes')
         self.assertEqual(values['Interview remarks'], data['interviewRemarks'])
+        self.assertEqual(values['Interview comments'], 'Strong interview performance')
         self.assertEqual(values['Interviewer'], data['interviewer'])
         self.admin.post(base + '/final-shortlist', json={'studentIds': [student], 'value': True}, headers=headers)
         decision = self.state()['state']['drives'][0]['finalDecisions']['gd-seed']

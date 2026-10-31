@@ -221,6 +221,13 @@ const run=code=>vm.runInContext(code,context);
  assert.deepEqual(finalRequest.body.studentIds,['1','2']);
  assert.equal(finalRequest.body.value,false);
 
+ // Opening a drive defaults to interview shortlisted only after a shortlist exists.
+ run("globalThis.defaultRows=[{interviewShortlisted:false}];combinedDriveScores=()=>defaultRows");
+ assert.equal(run("defaultFinalScoreFilters('d1').interviewShortlisted"),undefined);
+ run("defaultRows.push({interviewShortlisted:true})");
+ assert.equal(run("defaultFinalScoreFilters('d1').interviewShortlisted.values[0]"),'Yes');
+ assert.equal(run("defaultFinalScoreFilters('d1').aptitudeShortlisted.values[0]"),'Yes');
+
  // GD entries are local drafts until a pool is explicitly saved.
  run("state.drives=[{id:'pool-drive',name:'Pool drive',gd:{pools:[{name:'Pool A',members:['person'],evaluatorName:'Evaluator'}],candidates:{person:{name:'Person',studentId:'ID'}},scores:{}}}];gdPoolDrafts={}");
  let scoreRequests=0;

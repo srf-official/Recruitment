@@ -228,3 +228,8 @@ button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
 #final-score-content .final-prompt-score input{box-sizing:border-box;width:62px;min-width:0;flex:0 0 62px}
 #final-score-content .interviewer-select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid #dbe5ea;border-radius:8px;background:#f5f8fa;font:inherit}
 @media(max-width:800px){.results-controls.response-controls{grid-template-columns:1fr}.response-controls .shortlist-actions{justify-content:flex-start}}
+
+#final-score-content .final-filter-chip{background:#007f79;color:#fff;border-color:#007f79;font-weight:600;box-shadow:0 2px 5px #007f7920}
+#final-score-content .final-filter-hint{display:inline-block;margin-left:12px;color:#007f79;font-weight:600}
+#final-score-content th.final-col-interviewComments{width:260px}
+#final-score-content .interview-comments textarea{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;border:1px solid #d5e3e5;border-radius:8px;padding:8px;font:inherit;resize:vertical}
