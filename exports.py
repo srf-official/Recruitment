@@ -208,15 +208,15 @@ def final_excel(drive, rows):
     sheet.title = 'Final scores'
     sheet.append(['Drive name', 'Candidate name', 'Student ID', 'Aptitude score', 'Shortlisted in Aptitude',
                   'GD score (20)', 'GD recommend', 'GD evaluator', 'Language score (20)', 'Reasoning score (5)', 'Interview shortlisted',
-                  'Interview remarks', 'Prompt Engineering score (10)', 'Interviewer', 'Final status'])
+                  'Interview remarks', 'Prompt Engineering score (10)', 'Interviewer', 'Interview comments', 'Final status'])
     for row in rows:
         sheet.append([drive['name'], row['name'], row['studentId'], row.get('aptitudeScore'),
                       'Yes' if row.get('aptitudeShortlisted') else 'No', row.get('gdScore'),
                       'Yes' if row.get('gdRecommended') else 'No', row.get('gdEvaluator', ''), row.get('languageScore'), row.get('reasoningScore'),
                       'Yes' if row.get('interviewShortlisted') else 'No', row.get('interviewRemarks', ''), row.get('promptScore'),
-                      row.get('interviewer', ''),
+                      row.get('interviewer', ''), row.get('interviewComments', ''),
                       {'none': 'None', 'selected': 'Selected', 'on-hold': 'On hold', 'rejected': 'Rejected'}.get(row.get('outcome'), 'None')])
-    style_sheet(sheet, [34, 28, 20, 18, 24, 16, 18, 26, 22, 22, 24, 45, 30, 26, 18])
+    style_sheet(sheet, [34, 28, 20, 18, 24, 16, 18, 26, 22, 22, 24, 45, 30, 26, 50, 18])
     return workbook_bytes(book)
 
 
