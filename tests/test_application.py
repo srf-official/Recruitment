@@ -437,18 +437,22 @@ class ApplicationTests(unittest.TestCase):
         print(f'50-client durable-store concurrency test completed in {time.monotonic()-begin:.2f}s')
 
 
-    def test_manual_aptitude_shortlist_requires_remarks_and_is_atomic(self):
+    def test_manual_aptitude_shortlist_optional_remarks_and_atomicity(self):
         client, csrf, attempt = self.candidate(student='MANUAL')
         self.answer(client, csrf, responses={'q1': [0]}, submit=True)
         url = f'/api/admin/tests/{self.tests["aptitude"]}/manual-shortlist'
         headers = {'X-CSRF-Token': self.csrf}
         change = {'attemptId': attempt['id'], 'shortlisted': True, 'remarks': ''}
-        self.assertEqual(self.admin.post(url, json={'changes': [change]}, headers=headers).status_code, 400)
+        blank = copy.deepcopy(change)
         change['remarks'] = 'Solved the difficult question with a strong approach.'
         invalid = {'attemptId': 'missing', 'shortlisted': True, 'remarks': 'Invalid candidate'}
         self.assertEqual(self.admin.post(url, json={'changes': [change, invalid]}, headers=headers).status_code, 400)
         stored = next(a for a in self.state()['state']['sessions'][0]['attempts'] if a['id'] == attempt['id'])
         self.assertFalse(stored['shortlisted'])
+        self.assertEqual(self.admin.post(url, json={'changes': [blank]}, headers=headers).status_code, 200)
+        stored = next(a for a in self.state()['state']['sessions'][0]['attempts'] if a['id'] == attempt['id'])
+        self.assertEqual(stored['shortlistRemarks'], '')
+        self.assertTrue(stored['shortlisted'])
         self.assertEqual(self.admin.post(url, json={'changes': [change]}, headers=headers).status_code, 200)
         stored = next(a for a in self.state()['state']['sessions'][0]['attempts'] if a['id'] == attempt['id'])
         self.assertTrue(stored['shortlisted'])
@@ -500,13 +504,15 @@ class ApplicationTests(unittest.TestCase):
         self.admin.post(base + '/gd/evaluator', json={'poolIndex': 0, 'evaluatorName': 'GD Evaluator'}, headers=headers)
         url = base + '/candidate-decision'
         data = {'studentId': student, 'interviewShortlisted': True}
-        self.assertEqual(self.admin.post(url, json=data, headers=headers).status_code, 400)
+        self.assertEqual(self.admin.post(url, json=data, headers=headers).status_code, 200)
         data.update(interviewRemarks='Strong reasoning in the group discussion.', interviewer='Interview Evaluator')
         response = self.admin.post(url, json=data, headers=headers)
         self.assertEqual(response.status_code, 200, response.json)
         self.assertTrue(response.json['decision']['interviewShortlisted'])
         response = self.admin.post(url, json={'studentId': student, 'interviewRemarks': ''}, headers=headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.admin.post(url, json={'studentId': student, 'interviewer': 'Another evaluator'}, headers=headers).status_code, 200)
+        self.admin.post(url, json=data, headers=headers)
         exported = self.admin.post(base + '/final/export', json={'studentIds': [student]}, headers=headers)
         sheet = load_workbook(io.BytesIO(exported.data)).active
         values = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))

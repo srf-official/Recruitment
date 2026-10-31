@@ -1092,7 +1092,7 @@ function finalTable(rows, driveId) {
         const student = encodeURIComponent(row.studentId).replace(/'/g, '%27');
         const status = ['none','selected','on-hold','rejected'].includes(row.outcome) ? row.outcome : 'none';
         const draft = finalInterviewDrafts[row.studentId.normalize('NFKC').toLowerCase()] || {value:row.interviewShortlisted,remarks:row.interviewRemarks,manual:row.interviewManual};
-        return `<tr><td class="final-candidate-name">${esc(row.name)}</td><td class="final-student-id">${esc(row.studentId)}</td><td class="final-number">${finalScoreCell(row.aptitude)}</td><td>${finalBooleanBadge(row.aptitude?.attempt.shortlisted)}</td><td class="final-number">${row.gdScore ?? '—'}</td><td>${finalBooleanBadge(row.gdRecommended)}</td><td>${esc(row.gdEvaluator)}</td><td class="final-number">${row.languageScore??'—'}</td><td class="final-number">${row.reasoningScore??'—'}</td><td class="final-interview-shortlisted"><select class="final-status-select" aria-label="Interview shortlisted for ${esc(row.name)}" onchange="draftFinalInterview('${student}','value',this.value==='yes',this)"><option value="no" ${!draft.value?'selected':''}>No</option><option value="yes" ${draft.value?'selected':''}>Yes</option></select></td><td class="interview-remarks"><textarea maxlength="2000" aria-label="Interview shortlist remarks for ${esc(row.name)}" placeholder="Required for manual shortlist" oninput="draftFinalInterview('${student}','remarks',this.value,this)" onblur="saveManualInterview('${driveId}','${student}',this)">${esc(draft.remarks || '')}</textarea></td><td><label class="final-prompt-score"><input aria-label="Prompt Engineering score for ${esc(row.name)}" type="number" min="0" max="10" step="0.5" value="${row.promptScore ?? ''}" onchange="savePromptScoreForDrive('${driveId}','${student}',this.value)"><span>/ 10</span></label></td><td>${(state.drives.find(d=>d.id===driveId)?.members||[]).length ? `<select class="interviewer-select" aria-label="Interviewer for ${esc(row.name)}" ${draft.value&&draft.manual&&!String(draft.remarks||'').trim()?'disabled':''} onchange="saveInterviewer('${driveId}','${student}',this.value)"><option value="">Select interviewer</option>${(state.drives.find(d=>d.id===driveId).members||[]).map(m=>`<option value="${esc(m)}" ${row.interviewer===m?'selected':''}>${esc(m)}</option>`).join('')}</select>` : `<input class="interviewer-input" maxlength="100" aria-label="Interviewer for ${esc(row.name)}" value="${esc(row.interviewer)}" onchange="saveInterviewer('${driveId}','${student}',this.value)">`}</td><td><select class="final-status-select outcome-${status}" aria-label="Final status for ${esc(row.name)}" onchange="saveFinalDecision('${driveId}','${student}',this.value)">${Object.entries({none:'None',selected:'Selected','on-hold':'On hold',rejected:'Rejected'}).map(([value,label])=>`<option value="${value}" ${status===value?'selected':''}>${label}</option>`).join('')}</select></td><td><button class="small" onclick="openCandidateResponses('${driveId}','${student}')">View full responses</button></td></tr>`;
+        return `<tr><td class="final-candidate-name">${esc(row.name)}</td><td class="final-student-id">${esc(row.studentId)}</td><td class="final-number">${finalScoreCell(row.aptitude)}</td><td>${finalBooleanBadge(row.aptitude?.attempt.shortlisted)}</td><td class="final-number">${row.gdScore ?? '—'}</td><td>${finalBooleanBadge(row.gdRecommended)}</td><td>${esc(row.gdEvaluator)}</td><td class="final-number">${row.languageScore??'—'}</td><td class="final-number">${row.reasoningScore??'—'}</td><td class="final-interview-shortlisted"><select class="final-status-select" aria-label="Interview shortlisted for ${esc(row.name)}" onchange="draftFinalInterview('${student}','value',this.value==='yes',this)"><option value="no" ${!draft.value?'selected':''}>No</option><option value="yes" ${draft.value?'selected':''}>Yes</option></select></td><td class="interview-remarks"><textarea maxlength="2000" aria-label="Interview shortlist remarks for ${esc(row.name)}" placeholder="Remarks (optional)" oninput="draftFinalInterview('${student}','remarks',this.value,this)" onblur="saveManualInterview('${driveId}','${student}',this)">${esc(draft.remarks || '')}</textarea></td><td><label class="final-prompt-score"><input aria-label="Prompt Engineering score for ${esc(row.name)}" type="number" min="0" max="10" step="0.5" value="${row.promptScore ?? ''}" onchange="savePromptScoreForDrive('${driveId}','${student}',this.value)"><span>/ 10</span></label></td><td>${(state.drives.find(d=>d.id===driveId)?.members||[]).length ? `<select class="interviewer-select" aria-label="Interviewer for ${esc(row.name)}"  onchange="saveInterviewer('${driveId}','${student}',this.value)"><option value="">Select interviewer</option>${(state.drives.find(d=>d.id===driveId).members||[]).map(m=>`<option value="${esc(m)}" ${row.interviewer===m?'selected':''}>${esc(m)}</option>`).join('')}</select>` : `<input class="interviewer-input" maxlength="100" aria-label="Interviewer for ${esc(row.name)}" value="${esc(row.interviewer)}" onchange="saveInterviewer('${driveId}','${student}',this.value)">`}</td><td><select class="final-status-select outcome-${status}" aria-label="Final status for ${esc(row.name)}" onchange="saveFinalDecision('${driveId}','${student}',this.value)">${Object.entries({none:'None',selected:'Selected','on-hold':'On hold',rejected:'Rejected'}).map(([value,label])=>`<option value="${value}" ${status===value?'selected':''}>${label}</option>`).join('')}</select></td><td><button class="small" onclick="openCandidateResponses('${driveId}','${student}')">View full responses</button></td></tr>`;
     }).join('');
     return `<div class="final-score-toolbar"><span class="sub"><strong>${visible.length}</strong> of ${rows.length} candidates shown</span><div class="row"><button class="primary small" onclick="shortlistFilteredFinal()" ${visible.length ? '' : 'disabled'}>Shortlist filtered for interview</button><button class="small" onclick="revertFilteredFinal()" ${visible.length ? '' : 'disabled'}>Revert interview shortlist</button><button class="small" onclick="clearFinalScoreFilters()">Clear filters</button><div class="final-export-control"><button class="small" onclick="toggleFinalExportMenu()" ${visible.length ? '' : 'disabled'}>↓ Export to Excel ▾</button><div id="final-export-menu" class="final-export-menu" hidden><small>Current filtered view</small><button onclick="exportFinalScores('all')">Export all candidate details</button><button onclick="exportFinalScores('interview')">Export interview</button></div></div></div></div>${chips ? '<div class="final-active-filters">'+chips+'</div>' : ''}<div class="results-scroll" onscroll="closeFinalColumnFilter()"><table class="final-scores-table">${finalHeader()}<tbody>${body || '<tr><td colspan="'+(FINAL_COLUMNS.length+1)+'" class="results-empty">No candidates match these filters.</td></tr>'}</tbody></table></div>`;
 }
@@ -1134,12 +1134,11 @@ function draftFinalInterview(encodedId, field, value, control) {
     const row = combinedDriveScores(finalDriveCurrent).find(r => r.studentId.normalize('NFKC').toLowerCase() === key);
     if (!row) return;
     const draft = finalInterviewDrafts[key] ||= {value:row.interviewShortlisted, remarks:row.interviewRemarks || '', manual:row.interviewManual===true};
-    draft[field] = value; if(field==='value') draft.manual=true; const rowEl=control?.closest('tr'); if(rowEl){const input=rowEl.querySelector('.interviewer-select,.interviewer-input');if(input)input.disabled=Boolean(draft.value&&draft.manual)&&!String(draft.remarks||'').trim();}
+    draft[field] = value; if(field==='value') draft.manual=true; const rowEl=control?.closest('tr'); if(rowEl){const input=rowEl.querySelector('.interviewer-select,.interviewer-input');if(input)input.disabled=false;}
 }
 async function saveManualInterview(driveId, encodedId, button) {
     const studentId = decodeURIComponent(encodedId), key = studentId.normalize('NFKC').toLowerCase(), draft = finalInterviewDrafts[key];
     if (!draft) return toast('No interview shortlist changes to save.');
-    if (draft.value && draft.manual && !draft.remarks.trim()) return toast('Enter remarks before assigning an interviewer.');
     button.disabled = true;
     try {
         const result = await api('/api/admin/drives/' + driveId + '/candidate-decision', 'POST', {studentId, interviewShortlisted:draft.value, interviewManual:draft.manual===true, interviewRemarks:draft.remarks});
@@ -1220,12 +1219,13 @@ async function openCandidateResponses(driveId, encodedStudent) {
     } catch (e) { handleError(e); }
 }
 async function saveInterviewer(driveId, encodedId, interviewer) {
-    const studentId = decodeURIComponent(encodedId), key = studentId.normalize('NFKC').toLowerCase(); const draft=finalInterviewDrafts[key]; if(draft?.value&&draft.manual&&!String(draft.remarks||'').trim()){toast('Enter remarks before assigning an interviewer.');return;}
+    const studentId = decodeURIComponent(encodedId), key = studentId.normalize('NFKC').toLowerCase(); const draft=finalInterviewDrafts[key];
     try {
-        const result = await api('/api/admin/drives/' + driveId + '/candidate-decision', 'POST', {studentId,interviewer});
+        const result = await api('/api/admin/drives/' + driveId + '/candidate-decision', 'POST', {studentId,interviewer,...(draft?{interviewShortlisted:draft.value,interviewManual:draft.manual===true,interviewRemarks:draft.remarks||''}:{})});
         const drive = state.drives.find(d => d.id === driveId);
         drive.finalDecisions ||= {};
         drive.finalDecisions[key] = result.decision;
+        delete finalInterviewDrafts[key];
         toast('Interviewer saved.');
     } catch(e) { handleError(e); }
 }
@@ -1255,7 +1255,7 @@ async function openAptitudeReview(id) {
         stopGdRefresh(); await reloadAdmin();
         aptitudeReviewId = id; aptitudeReviewFilters = {}; aptitudeReviewDrafts = {};
         modal.className = 'results-dialog aptitude-review-dialog';
-        modal.innerHTML = '<header class="results-header"><div class="row between"><div><h2>Aptitude · Candidate responses</h2><p class="sub">Review question marks. A manual shortlist requires remarks and is saved only with Save updates.</p></div><div class="row"><button class="primary small" id="save-aptitude-review" onclick="saveAptitudeReview()" disabled>Save updates</button><button class="small" onclick="closeAptitudeReview()">Back to responses</button></div></div><p id="aptitude-review-validation" class="inline-error" role="alert"></p></header><div class="final-score-toolbar"><span id="aptitude-review-count" class="sub"></span><button class="small" onclick="aptitudeReviewFilters={};renderAptitudeReview()">Clear filters</button></div><div class="results-scroll" id="aptitude-review-content" onscroll="closeFinalColumnFilter()"></div>';
+        modal.innerHTML = '<header class="results-header"><div class="row between"><div><h2>Aptitude · Candidate responses</h2><p class="sub">Review question marks. Manual shortlists are saved with Save updates. Remarks are optional.</p></div><div class="row"><button class="primary small" id="save-aptitude-review" onclick="saveAptitudeReview()" disabled>Save updates</button><button class="small" onclick="closeAptitudeReview()">Back to responses</button></div></div><p id="aptitude-review-validation" class="inline-error" role="alert"></p></header><div class="final-score-toolbar"><span id="aptitude-review-count" class="sub"></span><button class="small" onclick="aptitudeReviewFilters={};renderAptitudeReview()">Clear filters</button></div><div class="results-scroll" id="aptitude-review-content" onscroll="closeFinalColumnFilter()"></div>';
         renderAptitudeReview(); if (!modal.open) modal.showModal();
     } catch(e) { handleError(e); }
 }
@@ -1283,12 +1283,11 @@ function draftAptitudeReview(id, field, value) {
 }
 function validateAptitudeReview() {
     const drafts=Object.values(aptitudeReviewDrafts);
-    const invalid=drafts.some(d=>d.shortlisted&&!d.remarks.trim());
     const button=document.querySelector('#save-aptitude-review');
-    if(button)button.disabled=!drafts.length||invalid;
+    if(button)button.disabled=!drafts.length;
     const error=document.querySelector('#aptitude-review-validation');
-    if(error)error.textContent=invalid?'Enter remarks for every manually shortlisted candidate before saving.':'';
-    return !invalid;
+    if(error)error.textContent='';
+    return true;
 }
 async function saveAptitudeReview() {
     if(!validateAptitudeReview())return;
@@ -1310,10 +1309,6 @@ modal.addEventListener?.('cancel',event=>{
 
 async function flushFinalInterviewDrafts() {
     const entries = Object.entries(finalInterviewDrafts);
-    if (entries.some(([,d])=>d.value&&!d.remarks.trim())) {
-        toast('Save a remark for every manual interview shortlist before continuing.');
-        return false;
-    }
     const drive = state.drives.find(d=>d.id===finalDriveCurrent);
     for (const [key,draft] of entries) {
         const row=combinedDriveScores(finalDriveCurrent).find(r=>r.studentId.normalize('NFKC').toLowerCase()===key);
