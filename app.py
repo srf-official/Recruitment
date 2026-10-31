@@ -585,7 +585,6 @@ def create_app(settings=None):
                 value = item.get('shortlisted')
                 require(type(value) is bool, 'Choose a valid shortlist status.')
                 remarks = clean_text(item.get('remarks', ''), 2000, 'shortlist remarks')
-                require(not value or bool(remarks), 'Remarks are required for every manually shortlisted candidate.')
                 require(a.get('submittedAt') and not grade(test['questions'], a)['pending'],
                         'Only completed candidates with final marks can be manually shortlisted.')
                 validated.append((a, value, remarks))
@@ -981,14 +980,11 @@ def create_app(settings=None):
                     canonical = next((member for member in members if student_key(member) == student_key(interviewer)), None)
                     require(canonical is not None, 'Choose an interviewer from this drive’s members.')
                     interviewer = canonical
-                if decision.get('interviewManual') and decision.get('interviewShortlisted'):
-                    require(bool(decision.get('interviewRemarks', '').strip()), 'Add remarks before assigning an interviewer to a manually shortlisted candidate.')
                 decision['interviewer'] = interviewer
             if 'interviewShortlisted' in data or 'interviewRemarks' in data:
                 value = data.get('interviewShortlisted', decision.get('interviewShortlisted', False))
                 remarks = clean_text(data.get('interviewRemarks', decision.get('interviewRemarks', '')), 2000, 'interview remarks')
                 manual = value and (data.get('interviewManual') is True or ('interviewShortlisted' in data and data.get('interviewManual') is not False) or decision.get('interviewManual') and data.get('interviewManual') is not False)
-                require(not manual or bool(remarks), 'Remarks are required when manually shortlisting a candidate for interview.')
                 decision.update(interviewShortlisted=value, interviewManual=bool(manual), interviewRemarks=remarks if value else '')
             return jsonify(outcome=decision.get('outcome') or 'none', decision=decision, serverNow=now_ms())
 
