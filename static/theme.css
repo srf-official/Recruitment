@@ -233,3 +233,6 @@ button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
 #final-score-content .final-filter-hint{display:inline-block;margin-left:12px;color:#007f79;font-weight:600}
 #final-score-content th.final-col-interviewComments{width:260px}
 #final-score-content .interview-comments textarea{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;border:1px solid #d5e3e5;border-radius:8px;padding:8px;font:inherit;resize:vertical}
+
+.aside-foot .profile{display:flex;flex-direction:column;gap:10px;align-items:stretch}.signed-in-email{font-size:11px;overflow-wrap:anywhere;color:#d8e5e5;text-align:center}.admin-user-list{max-height:45vh;overflow:auto;margin-top:20px}.admin-user-list>.row{padding:9px 0;border-bottom:1px solid #e2ebec}.microsoft-signin{display:inline-block;padding:12px 18px;text-decoration:none}.status-editor{display:flex;align-items:center;gap:5px}.status-icon{padding:5px;width:29px;min-width:29px;height:30px;color:#00867e}.status-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8}.status-icon:disabled{color:#9ba8ac;opacity:.5}.status-editor select{flex:1;min-width:70px!important}.status-editor select:disabled{opacity:1}.final-scores-dialog th.final-col-interviewShortlisted{width:200px!important}.final-scores-dialog th.final-col-outcome{width:210px!important}
+

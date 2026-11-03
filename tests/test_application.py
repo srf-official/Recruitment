@@ -117,6 +117,45 @@ class ApplicationTests(unittest.TestCase):
         self.assertNotIn('content', blank.json['gd']['scores'][pool['members'][0]])
 
 
+    def test_sso_membership_and_immediate_revocation(self):
+        from sso import DENIED, INITIAL_ADMINS
+        tenant = '1862453f-d9dc-484f-b927-c88a7bec8928'
+        app = create_app({**self.settings, 'AUTH_MODE': 'sso', 'ENTRA_TENANT_ID': tenant,
+            'ENTRA_CLIENT_ID': 'test-client', 'ENTRA_CLIENT_SECRET': 'test-only-secret', 'PUBLIC_ORIGIN': 'https://test.example'})
+        client = app.test_client()
+        csrf = client.get('/api/auth/session').json['csrf']
+        self.assertEqual(client.post('/api/auth/login', json={'email': 'x', 'password': 'x'}, headers={'X-CSRF-Token': csrf}).status_code, 403)
+        remote = app.extensions['talent_oauth'].microsoft
+        try:
+            with patch.object(remote, 'authorize_access_token', return_value={'userinfo': {'tid': tenant, 'oid': 'one', 'preferred_username': 'Mohamed.Shareef@turnb.com'}}):
+                self.assertEqual(client.get('/auth/callback').status_code, 302)
+            auth = client.get('/api/auth/session').json
+            self.assertTrue(auth['admin'])
+            self.assertEqual(auth['email'], 'mohamed.shareef@turnb.com')
+            headers = {'X-CSRF-Token': auth['csrf']}
+            roster = client.get('/api/admin/users').json['users']
+            self.assertEqual(set(roster), set(INITIAL_ADMINS))
+            self.assertEqual(client.post('/api/admin/users', json={'action': 'delete', 'email': auth['email']}, headers=headers).status_code, 400)
+            self.assertEqual(client.post('/api/admin/users', json={'action': 'add', 'email': 'Future.Recruiter@turnb.com'}, headers=headers).status_code, 200)
+            self.assertEqual(client.post('/api/admin/users', json={'action': 'add', 'email': 'outsider@example.com'}, headers=headers).status_code, 400)
+            second = app.test_client()
+            with patch.object(remote, 'authorize_access_token', return_value={'userinfo': {'tid': tenant, 'oid': 'two', 'preferred_username': 'future.recruiter@turnb.com'}}):
+                second.get('/auth/callback')
+            self.assertTrue(second.get('/api/auth/session').json['admin'])
+            client.post('/api/admin/users', json={'action': 'delete', 'email': 'future.recruiter@turnb.com'}, headers=headers)
+            self.assertEqual(second.get('/api/admin/state').status_code, 401)
+            with patch.object(remote, 'authorize_access_token', return_value={'userinfo': {'tid': tenant, 'oid': 'unknown', 'preferred_username': 'unknown@turnb.com'}}):
+                second.get('/auth/callback')
+            denied = second.get('/api/auth/session').json
+            self.assertFalse(denied['admin'])
+            self.assertEqual(denied['error'], DENIED)
+            with patch.object(remote, 'authorize_access_token', return_value={'userinfo': {'tid': 'other-tenant', 'oid': 'one', 'preferred_username': auth['email']}}):
+                second.get('/auth/callback')
+            self.assertFalse(second.get('/api/auth/session').json['admin'])
+            self.assertEqual(second.get('/api/admin/state', headers={'X-MS-CLIENT-PRINCIPAL-NAME': auth['email']}).status_code, 401)
+        finally:
+            app.extensions['store'].engine.dispose()
+
     def tearDown(self):
         self.app.extensions['store'].engine.dispose()
         self.directory.cleanup()
@@ -790,4 +829,5 @@ class ApplicationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
