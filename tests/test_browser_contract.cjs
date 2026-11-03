@@ -259,6 +259,17 @@ const run=code=>vm.runInContext(code,context);
  run("editGdPool('pool-drive',0)");
  assert(run("gdPoolDrafts['pool-drive:0']!==undefined"));
 
+ // Sorting is numeric, stable, blank-last, and independent of table scope.
+ run("finalDriveCurrent='sort-drive';tableSorts[tableSortId('final')]={key:'gdScore',direction:'asc'};globalThis.sortRows=[{name:'Ten',gdScore:10},{name:'Blank',gdScore:null},{name:'Two',gdScore:2},{name:'Tie',gdScore:2}]");
+ assert.equal(run("sortTableRows(sortRows,'final',(r,k)=>r[k]).map(r=>r.name).join(',')"),'Two,Tie,Ten,Blank');
+ run("tableSorts[tableSortId('final')].direction='desc'");
+ assert.equal(run("sortTableRows(sortRows,'final',(r,k)=>r[k]).map(r=>r.name).join(',')"),'Ten,Two,Tie,Blank');
+ assert.equal(run("sortRows[0].name"),'Ten');
+ run("responseSession='sort-test';tableSorts[tableSortId('response')]={key:'name',direction:'asc'}");
+ assert.equal(run("sortTableRows([{name:'Zoe'},{name:'amy'}],'response',(r,k)=>r[k])[0].name"),'amy');
+ assert.equal(run("sortTableRows(sortRows,'aptitude',(r,k)=>r[k])[0].name"),'Ten');
+ assert(fs.readFileSync('static/app.js','utf8').includes("Smallest to largest"));
+ assert(fs.readFileSync('static/app.js','utf8').includes("Largest to smallest"));
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
