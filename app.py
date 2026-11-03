@@ -20,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash
 
+from sso import install_sso
 from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
@@ -30,6 +31,10 @@ from store import Store, attempts, login_limits, now_ms
 def create_app(settings=None):
     app = Flask(__name__, static_folder='static')
     app.config.update(SECRET_KEY=os.environ.get('SESSION_SECRET') or secrets.token_urlsafe(48),
+                      AUTH_MODE=os.environ.get('AUTH_MODE', 'password'),
+                      ENTRA_TENANT_ID=os.environ.get('ENTRA_TENANT_ID', ''),
+                      ENTRA_CLIENT_ID=os.environ.get('ENTRA_CLIENT_ID', ''),
+                      ENTRA_CLIENT_SECRET=os.environ.get('ENTRA_CLIENT_SECRET', ''),
                       ADMIN_EMAIL=os.environ.get('ADMIN_EMAIL', 'turnbrecruitment@gmail.com'),
                       ADMIN_PASSWORD_HASH=os.environ.get('ADMIN_PASSWORD_HASH', ''),
                       DATABASE_URL=os.environ.get('DATABASE_URL', ''),
@@ -37,7 +42,7 @@ def create_app(settings=None):
                       APP_ENV=os.environ.get('APP_ENV', 'production'),
                       CONFIGURED_SECRET=bool(os.environ.get('SESSION_SECRET')),
                       SESSION_COOKIE_NAME='turnb_admin', SESSION_COOKIE_HTTPONLY=True,
-                      SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE='Strict',
+                      SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE='Lax',
                       PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=8 * 1024 * 1024)
     if settings:
         app.config.update(settings)
@@ -52,7 +57,7 @@ def create_app(settings=None):
     app.extensions['store'] = store
 
     def ready():
-        return store is not None and (local or app.config['CONFIGURED_SECRET'] and len(app.secret_key) >= 32) and bool(app.config['ADMIN_PASSWORD_HASH'])
+        return store is not None and (local or app.config['CONFIGURED_SECRET'] and len(app.secret_key) >= 32) and (bool(app.config['ADMIN_PASSWORD_HASH']) if app.config['AUTH_MODE'] != 'sso' else bool(app.config['ENTRA_CLIENT_ID'] and app.config['ENTRA_CLIENT_SECRET'] and app.config['ENTRA_TENANT_ID']))
 
     def db_required():
         if not ready():
@@ -62,10 +67,12 @@ def create_app(settings=None):
     def admin(function):
         @wraps(function)
         def wrapped(*args, **kwargs):
-            if not session.get('admin'):
+            if not app.extensions['admin_active']():
                 return jsonify(error='Administrator login required.'), 401
             return function(*args, **kwargs)
         return wrapped
+
+    install_sso(app, store, admin, require)
 
     @app.before_request
     def security():
@@ -132,10 +139,12 @@ def create_app(settings=None):
     @app.get('/api/auth/session')
     def auth_session():
         session.setdefault('csrf', secrets.token_urlsafe(32))
-        return jsonify(admin=bool(session.get('admin')), csrf=session['csrf'])
+        return jsonify(admin=app.extensions['admin_active'](), csrf=session['csrf'], email=session.get('admin_email',''), authMode=app.config['AUTH_MODE'], error=session.pop('sso_error',None))
 
     @app.post('/api/auth/login')
     def login():
+        if app.config['AUTH_MODE']=='sso':
+            return jsonify(error='Use Microsoft sign-in.'), 403
         data = request.get_json()
         require(isinstance(data, dict), 'Invalid login.')
         email = clean_text(data.get('email', ''), 200, 'email').casefold()
@@ -1092,4 +1101,5 @@ def create_app(settings=None):
 
 
 application = create_app()
+
 

@@ -221,6 +221,22 @@ const run=code=>vm.runInContext(code,context);
  assert.deepEqual(finalRequest.body.studentIds,['1','2']);
  assert.equal(finalRequest.body.value,false);
 
+ // Status changes remain local until Save and preserve the table scroll position.
+ run("state.drives=[{id:'status-drive',name:'Status drive',finalDecisions:{}}];finalDriveCurrent='status-drive';combinedDriveScores=()=>[{name:'Person',studentId:'ID',interviewSaved:false,outcomeSaved:false,outcome:'none'}];finalStatusDrafts={};finalScoreFilters={};");
+ let statusCalls=0;
+ context.fetch=async(path,options)=>{statusCalls++;const body=JSON.parse(options.body);return {ok:true,json:async()=>({decision:{interviewShortlisted:body.interviewShortlisted}})};};
+ run("draftStatus('ID','interview','yes')");
+ assert.equal(statusCalls,0);
+ assert.equal(run("state.drives[0].finalDecisions.id"),undefined);
+ document.querySelector('#final-score-content .results-scroll').scrollLeft=375;
+ await run("saveStatus('status-drive','ID','interview',{disabled:false})");
+ assert.equal(statusCalls,1);
+ assert.equal(run("state.drives[0].finalDecisions.id.interviewShortlisted"),true);
+ assert.equal(document.querySelector('#final-score-content .results-scroll').scrollLeft,375);
+ run("authMode='sso';authError='Not added';loginView()");
+ assert(document.querySelector('#app').innerHTML.includes('Sign in with Microsoft'));
+ assert(!document.querySelector('#app').innerHTML.includes('loginPassword'));
+
  // Opening a drive defaults to interview shortlisted only after a shortlist exists.
  run("globalThis.defaultRows=[{interviewShortlisted:false}];combinedDriveScores=()=>defaultRows");
  assert.equal(run("defaultFinalScoreFilters('d1').interviewShortlisted"),undefined);
@@ -245,3 +261,4 @@ const run=code=>vm.runInContext(code,context);
 
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
