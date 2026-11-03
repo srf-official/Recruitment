@@ -543,10 +543,10 @@ function responseNumberMatches(value, op, target, upper) {
     const n=Number(target);
     return ({gte:()=>value>=n,gt:()=>value>n,lte:()=>value<=n,lt:()=>value<n,eq:()=>value===n,between:()=>value>=n&&value<=Number(upper)})[op||'gte']?.()||false;
 }
-function responseRows(s) { return s.attempts.map(a=>({a,g:gradeAttempt(s,a),minutes:elapsedMinutes(a)})).filter(r=>{
+function responseRows(s) { return sortTableRows(s.attempts.map(a=>({a,g:gradeAttempt(s,a),minutes:elapsedMinutes(a)})).filter(r=>{
     const f=responseFilters,aptitude=s.type==='aptitude';
     return responseNumberMatches(r.a.submittedAt?r.g.total:null,aptitude?f.marksOp:'gte',f.minMarks,f.maxMarks)&&responseNumberMatches(r.minutes,aptitude?f.timeOp:'gte',f.minTime,f.maxTime)&&Object.entries(responseColumnFilters).every(([key,filter])=>responseColumnMatches(r,key,filter,s));
-}).sort((x,y)=>Number(!!y.a.submittedAt)-Number(!!x.a.submittedAt)||(y.g.total-x.g.total)||((x.minutes??Infinity)-(y.minutes??Infinity))); }
+}).sort((x,y)=>Number(!!y.a.submittedAt)-Number(!!x.a.submittedAt)||(y.g.total-x.g.total)||((x.minutes??Infinity)-(y.minutes??Infinity))),'response', (row,key)=>responseCellValue(row,key,s)); }
 function filterValidation() {
     const aptitude=state.sessions.find(s=>s.id===responseSession)?.type==='aptitude',f=responseFilters;
     for(const [key,op,upper] of [['minMarks',aptitude?(f.marksOp||'gte'):'gte','maxMarks'],['minTime',aptitude?(f.timeOp||'gte'):'gte','maxTime']]){
@@ -972,7 +972,7 @@ const FINAL_NUMBER_KEYS = new Set(['aptitudeScore', 'gdScore', 'languageScore', 
 const FINAL_OPERATORS = {gte: 'Greater than or equal to', gt: 'Greater than', lte: 'Less than or equal to', lt: 'Less than', eq: 'Equal to', between: 'Between', blank: 'Is blank', notblank: 'Is not blank'};
 function finalRowsFiltered(rows) {
     const filters = finalScoreFilters[finalDriveCurrent] || {};
-    return rows.filter(row => FINAL_COLUMNS.every(([key]) => {
+    return sortTableRows(rows.filter(row => FINAL_COLUMNS.every(([key]) => {
         const filter = filters[key];
         if (!filter) return true;
         if (typeof filter === 'string') return finalValue(row, key) === filter;
@@ -994,7 +994,7 @@ function finalRowsFiltered(rows) {
         }
         if (filter.values) return filter.values.includes(finalValue(row, key));
         return finalValue(row, key).toLocaleLowerCase().includes((filter.text || '').toLocaleLowerCase());
-    }));
+    })), 'final', (row,key)=>FINAL_NUMBER_KEYS.has(key)?row[key]:finalValue(row,key));
 }
 function finalFilterDescription(key, filter) {
     if (typeof filter === 'string') return filter;
@@ -1050,7 +1050,7 @@ function openFinalColumnFilter(key, button, scope = 'final') {
         const selected = filter.values || choices;
         fields = '<div class="final-filter-values">' + choices.map(value => `<label><input type="checkbox" name="final-filter-value" value="${esc(value)}" ${selected.includes(value) ? 'checked' : ''}>${esc(value)}</label>`).join('') + '</div>';
     }
-    panel.innerHTML = `<div class="final-filter-heading"><strong>${esc(label)}</strong><button type="button" class="quiet small" aria-label="Close filter" onclick="closeFinalColumnFilter()">✕</button></div><form id="final-column-filter-form">${fields}<p id="final-filter-error" class="inline-error" role="alert"></p><div class="final-filter-actions"><button type="button" class="small" onclick="${setFilter}('${key}',null)">Clear</button><button type="submit" class="primary small">Apply filter</button></div></form>`;
+    panel.innerHTML = `<div class="final-filter-heading"><strong>${esc(label)}</strong><button type="button" class="quiet small" aria-label="Close filter" onclick="closeFinalColumnFilter()">✕</button></div><div class="column-sort-actions" role="group" aria-label="Sort ${esc(label)}"><button type="button" class="small" onclick="setTableSort('${scope}','${key}','asc')">↑ ${numeric?'Smallest to largest':'Sort A to Z'}</button><button type="button" class="small" onclick="setTableSort('${scope}','${key}','desc')">↓ ${numeric?'Largest to smallest':'Sort Z to A'}</button><button type="button" class="quiet small" onclick="setTableSort('${scope}','${key}',null)">Reset sorting</button></div><form id="final-column-filter-form">${fields}<p id="final-filter-error" class="inline-error" role="alert"></p><div class="final-filter-actions"><button type="button" class="small" onclick="${setFilter}('${key}',null)">Clear</button><button type="submit" class="primary small">Apply filter</button></div></form>`;
     modal.appendChild(panel);
     document.addEventListener('pointerdown', finalFilterOutside);
     modal.addEventListener('close', closeFinalColumnFilter);
@@ -1237,7 +1237,7 @@ const APTITUDE_REVIEW_NUMBERS = new Set(['marks','minutes']);
 let aptitudeReviewId = '', aptitudeReviewFilters = {}, aptitudeReviewDrafts = {};
 function aptitudeReviewRows() {
     const test = state.sessions.find(s => s.id === aptitudeReviewId);
-    return (test?.attempts || []).map(a => ({a, name:a.name, studentId:a.studentId, marks:a.submittedAt ? gradeAttempt(test,a).total : null, minutes:elapsedMinutes(a), aptitudeShortlisted:a.shortlisted?'Yes':'No', grading:gradeAttempt(test,a)})).filter(row => APTITUDE_REVIEW_COLUMNS.every(([key]) => {
+    return sortTableRows((test?.attempts || []).map(a => ({a, name:a.name, studentId:a.studentId, marks:a.submittedAt ? gradeAttempt(test,a).total : null, minutes:elapsedMinutes(a), aptitudeShortlisted:a.shortlisted?'Yes':'No', grading:gradeAttempt(test,a)})).filter(row => APTITUDE_REVIEW_COLUMNS.every(([key]) => {
         const filter = aptitudeReviewFilters[key], value = row[key];
         if (!filter) return true;
         if (filter.values) return filter.values.includes(value);
@@ -1250,7 +1250,7 @@ function aptitudeReviewRows() {
             return ({gte:()=>value>=n,gt:()=>value>n,lte:()=>value<=n,lt:()=>value<n,eq:()=>value===n,between:()=>value>=n&&value<=Number(filter.upper)}[filter.op] || (()=>false))();
         }
         return String(value).toLocaleLowerCase().includes((filter.text || '').toLocaleLowerCase());
-    }));
+    })), 'aptitude', (row,key)=>row[key]);
 }
 async function openAptitudeReview(id) {
     try {
@@ -1369,4 +1369,24 @@ function draftStatus(encodedId,field,value){const id=decodeURIComponent(encodedI
 function editStatus(encodedId,field){const id=decodeURIComponent(encodedId),row=combinedDriveScores(finalDriveCurrent).find(r=>r.studentId.normalize('NFKC').toLowerCase()===id.normalize('NFKC').toLowerCase());if(row)draftStatus(encodedId,field,field==='interview'?(row.interviewShortlisted?'yes':'no'):row.outcome);}
 async function saveStatus(driveId,encodedId,field,button){const studentId=decodeURIComponent(encodedId),key=field+':'+studentId.normalize('NFKC').toLowerCase(),draft=finalStatusDrafts[key];if(!draft?.value)return;button.disabled=true;
     try{const body=field==='interview'?{studentId,interviewShortlisted:draft.value==='yes',interviewManual:true}:{studentId,outcome:draft.value};const result=await api('/api/admin/drives/'+driveId+'/candidate-decision','POST',body);const drive=state.drives.find(d=>d.id===driveId);drive.finalDecisions||={};drive.finalDecisions[studentId.normalize('NFKC').toLowerCase()]=result.decision;delete finalStatusDrafts[key];rerenderFinalTable();toast('Status saved.');}catch(e){button.disabled=false;handleError(e);}}
+
+// Column sorting is local to each table and never changes saved candidate data.
+const tableSorts = {};
+function tableSortId(scope) { return scope+':'+(scope==='final'?finalDriveCurrent:scope==='aptitude'?aptitudeReviewId:responseSession); }
+function sortTableRows(rows,scope,valueFor) {
+ const sort=tableSorts[tableSortId(scope)]; if(!sort)return rows;
+ const numeric=(scope==='final'?FINAL_NUMBER_KEYS:scope==='aptitude'?APTITUDE_REVIEW_NUMBERS:RESPONSE_NUMBERS).has(sort.key);
+ return rows.map((row,index)=>({row,index})).sort((a,b)=>{
+  const x=valueFor(a.row,sort.key),y=valueFor(b.row,sort.key);
+  const blank=v=>v==null||v===''||v==='—'||(numeric&&!Number.isFinite(v));
+  if(blank(x)||blank(y))return blank(x)===blank(y)?a.index-b.index:blank(x)?1:-1;
+  const comparison=numeric?x-y:String(x).localeCompare(String(y),undefined,{numeric:true,sensitivity:'base'});
+  return (sort.direction==='desc'?-comparison:comparison)||a.index-b.index;
+ }).map(item=>item.row);
+}
+function setTableSort(scope,key,direction) {
+ const id=tableSortId(scope); if(direction)tableSorts[id]={key,direction};else delete tableSorts[id];
+ closeFinalColumnFilter();
+ if(scope==='final')rerenderFinalTable();else if(scope==='aptitude')renderAptitudeReview();else updateResponseTable();
+}
 
