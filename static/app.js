@@ -526,7 +526,7 @@ function overviewCard(drive) {
         const undecided = !drive.finishedAt && (icon === 'selected' || icon === 'hold') && value === 0;
         return `<div class="overview-metric-row"><span class="overview-metric-icon metric-${icon}">${uiIcon(icon)}</span><div class="overview-metric-copy"><span>${label}</span><strong>${undecided ? '' : value}</strong></div></div>`;
     }).join('');
-    return `<button class="overview-drive-card card" onclick="openDriveScheduler('${drive.id}')"><div class="overview-card-head"><span class="overview-drive-icon">${uiIcon('college')}</span><div><strong>${esc(drive.name)}</strong><small>${drive.finishedAt ? `Finished ${date(drive.finishedAt)}` : `Created ${date(drive.createdAt)}`}</small></div>${badge(status)}</div><div class="overview-metrics">${metricRows}</div><span class="overview-open"><span>Open drive</span><span class="overview-open-arrow">${uiIcon('arrow')}</span></span></button>`;
+    return `<article class="overview-drive-card card"><div class="overview-card-head"><span class="overview-drive-icon">${uiIcon('college')}</span><div><strong>${esc(drive.name)}</strong><small>${drive.finishedAt ? `Finished ${date(drive.finishedAt)}` : `Created ${date(drive.createdAt)}`}</small></div>${badge(status)}</div><div class="overview-metrics">${metricRows}</div><div class="overview-open"><button class="overview-score-link" onclick="showFinalScores('${drive.id}')">Open final scores</button><button class="overview-drive-link" onclick="openDriveScheduler('${drive.id}')"><span>Open drive</span><span class="overview-open-arrow">${uiIcon('arrow')}</span></button></div></article>`;
 }
 function overviewPage() {
     const live = state.drives.filter(d => !d.finishedAt).sort((a, b) => b.createdAt - a.createdAt), finished = state.drives.filter(d => d.finishedAt).sort((a, b) => b.finishedAt - a.finishedAt);
@@ -949,14 +949,35 @@ window.addEventListener('beforeunload', event => { if (candidateDirty || adminPe
 } });
 bootstrap();
 
+let finalDriveYear = '', finalDriveMonth = '';
 let finalDriveFilter = '', finalScoreFilters = {}, finalDriveCurrent = '';
 const FINAL_COLUMNS = [
  ['name','Candidate name'],['studentId','Student ID'],['aptitudeScore','Aptitude score'],['aptitudeShortlisted','Shortlisted in Aptitude'],
  ['gdScore','GD score (20)'],['gdRecommended','GD recommend'],['gdEvaluator','GD evaluator'],['languageScore','Language score (20)'],['reasoningScore','Reasoning score (5)'],['interviewShortlisted','Interview shortlisted'],
  ['interviewRemarks','Remarks'],['promptScore','Prompt Engineering (10)'],['interviewer','Interviewer'],['interviewComments','Interview comments'],['outcome','Final status']
 ];
-function finalScoresPage() { return heading('Final scores','Review scores, shortlist interview candidates and record final decisions.','')+'<div class="filterbar"><div class="field"><label for="finalDriveFilter">Find a drive</label><input id="finalDriveFilter" type="search" value="'+esc(finalDriveFilter)+'" placeholder="Search college, year or drive name" oninput="finalDriveFilter=this.value;updateFinalDriveList()"></div></div><div id="finalDriveList">'+finalDriveList()+'</div>'; }
-function finalDriveList() { let drives=state.drives.filter(d=>d.name.toLocaleLowerCase().includes(finalDriveFilter.trim().toLocaleLowerCase())); return drives.map(d=>'<button class="final-drive card" onclick="showFinalScores(\''+d.id+'\')"><span><strong>'+esc(d.name)+'</strong><small>'+combinedDriveScores(d.id).length+' candidates</small></span><span>View final scores →</span></button>').join('')||'<div class="empty">No drives match your search.</div>'; }
+function driveCreationParts(drive) {
+ const value = new Date(drive.createdAt);
+ if (!drive.createdAt || !Number.isFinite(value.getTime())) return {};
+ const parts = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit'}).formatToParts(value);
+ return Object.fromEntries(parts.filter(p=>p.type==='year'||p.type==='month').map(p=>[p.type,p.value]));
+}
+function filteredFinalDrives() {
+ return state.drives.filter(d=>{
+  const created=driveCreationParts(d);
+  return d.name.toLocaleLowerCase().includes(finalDriveFilter.trim().toLocaleLowerCase()) && (!finalDriveYear||created.year===finalDriveYear) && (!finalDriveMonth||created.month===finalDriveMonth);
+ });
+}
+function finalScoresPage() {
+ const years=[...new Set(state.drives.map(d=>driveCreationParts(d).year).filter(Boolean))].sort().reverse();
+ const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+ return heading('Final scores','Review scores, shortlist interview candidates and record final decisions.','')+
+ `<div class="filterbar final-drive-filters"><div class="field"><label for="finalDriveFilter">Find a drive</label><input id="finalDriveFilter" type="search" value="${esc(finalDriveFilter)}" placeholder="Search college, year or drive name" oninput="finalDriveFilter=this.value;updateFinalDriveList()"></div><div class="field creation-filter"><label for="finalDriveYear">Created year</label><select id="finalDriveYear" onchange="finalDriveYear=this.value;updateFinalDriveList()"><option value="">All years</option>${years.map(y=>`<option value="${y}" ${finalDriveYear===y?'selected':''}>${y}</option>`).join('')}</select></div><div class="field creation-filter"><label for="finalDriveMonth">Created month</label><select id="finalDriveMonth" onchange="finalDriveMonth=this.value;updateFinalDriveList()"><option value="">All months</option>${months.map((m,i)=>{const v=String(i+1).padStart(2,'0');return `<option value="${v}" ${finalDriveMonth===v?'selected':''}>${m}</option>`}).join('')}</select></div></div><div id="finalDriveList">${finalDriveList()}</div>`;
+}
+function finalDriveList() {
+ const drives=filteredFinalDrives();
+ return `<p class="final-drive-count" role="status">${drives.length} of ${state.drives.length} drives</p>`+(drives.map(d=>'<button class="final-drive card" onclick="showFinalScores(\''+d.id+'\')"><span><strong>'+esc(d.name)+'</strong><small>'+combinedDriveScores(d.id).length+' candidates</small></span><span>View final scores →</span></button>').join('')||'<div class="empty">No drives match your search.</div>');
+}
 function updateFinalDriveList() { document.querySelector('#finalDriveList').innerHTML=finalDriveList(); }
 function combinedDriveScores(driveId) {
  let candidates=new Map(),drive=state.drives.find(d=>d.id===driveId);
@@ -1389,4 +1410,3 @@ function setTableSort(scope,key,direction) {
  closeFinalColumnFilter();
  if(scope==='final')rerenderFinalTable();else if(scope==='aptitude')renderAptitudeReview();else updateResponseTable();
 }
-

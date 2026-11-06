@@ -89,6 +89,20 @@ const run=code=>vm.runInContext(code,context);
  run("finalDriveFilter='College 2026';updateFinalDriveList()");
  assert(!document.querySelector('#finalDriveList').innerHTML.includes('Other college'));
 
+ // Drive date filters use creation dates, combine with search, and handle IST year boundaries.
+ run(`globalThis.previousDrives=state.drives;state.drives=[
+ {id:'boundary',name:'College 2020',createdAt:Date.parse('2025-12-31T20:00:00Z')},
+ {id:'older',name:'College 2026',createdAt:Date.parse('2025-12-15T10:00:00Z')},
+ {id:'other',name:'Other',createdAt:Date.parse('2026-01-15T10:00:00Z')}];
+ finalDriveFilter='College';finalDriveYear='2026';finalDriveMonth='01';`);
+ assert.equal(run("filteredFinalDrives().map(d=>d.id).join(',')"),'boundary');
+ assert(run('finalDriveList()').includes('1 of 3 drives'));
+ assert(run('overviewCard(state.drives[0])').includes("showFinalScores('boundary')"));
+ assert(!run('overviewCard(state.drives[0])').includes('<button class="overview-drive-card'));
+ run("finalDriveYear='';finalDriveMonth='';");
+ assert.equal(run('filteredFinalDrives().length'),2);
+ run("state.drives=previousDrives;finalDriveFilter='College 2026';");
+
  // Final-score filters combine status and inclusive numeric conditions.
  run(`finalDriveCurrent='d1';finalScoreFilters={d1:{aptitudeShortlisted:{values:['Yes']},gdScore:{op:'gte',value:'10.5'},languageScore:{op:'gte',value:'15'}}};
  globalThis.filterRows=[
@@ -272,4 +286,3 @@ const run=code=>vm.runInContext(code,context);
  assert(fs.readFileSync('static/app.js','utf8').includes("Largest to smallest"));
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
-
