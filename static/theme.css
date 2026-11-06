@@ -238,3 +238,10 @@ button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
 
 .column-sort-actions{display:grid;gap:6px;padding:0 0 12px;margin-bottom:12px;border-bottom:1px solid #d5e5e7}.column-sort-actions button{text-align:left;width:100%}
 
+.overview-open{justify-content:space-between;flex-wrap:wrap;gap:8px}
+.overview-open button{display:flex;align-items:center;gap:10px;font:inherit;border:0;background:transparent;color:#008781;padding:4px 0;cursor:pointer}
+.overview-open .overview-score-link{padding:8px 10px;background:#edf8f7;border:1px solid #cde8e4;border-radius:8px}
+.final-drive-filters .creation-filter{flex:0 1 170px}
+.final-drive-filters select{width:100%;min-height:44px}
+.final-drive-count{font-size:12px;color:var(--muted);margin:0 0 12px}
+@media(max-width:660px){.final-drive-filters .creation-filter{flex:1 1 130px}}
