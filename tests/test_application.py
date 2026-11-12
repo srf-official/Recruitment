@@ -410,6 +410,22 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(cleared.active.cell(2, 7).value, 'No')
         self.assertEqual(self.admin.get(f'/api/admin/tests/{self.tests["aptitude"]}/excel?minTime=-1').status_code, 400)
 
+    def test_aptitude_revert_selected_or_filtered_only(self):
+        c, csrf, attempt = self.candidate(name='Selected candidate', student='SELECTED')
+        self.answer(c, csrf, submit=True)
+        url = f'/api/admin/tests/{self.tests["aptitude"]}/shortlist'
+        headers = {'X-CSRF-Token': self.csrf}
+        self.admin.post(url, json={'value': True}, headers=headers)
+        rows = next(t for t in self.state()['state']['sessions'] if t['id'] == self.tests['aptitude'])['attempts']
+        selected = next(a for a in rows if a['studentId'] == 'SELECTED')
+        result = self.admin.post(url, json={'value': False, 'attemptIds': [selected['id']]}, headers=headers)
+        self.assertEqual(result.json['changed'], 1)
+        rows = next(t for t in self.state()['state']['sessions'] if t['id'] == self.tests['aptitude'])['attempts']
+        self.assertFalse(next(a for a in rows if a['id'] == selected['id'])['shortlisted'])
+        self.assertTrue(all(a['shortlisted'] for a in rows if a['id'] != selected['id']))
+        result = self.admin.post(url, json={'value': False, 'columnFilters': {'studentId': {'text': 'NOT-FOUND'}}}, headers=headers)
+        self.assertEqual(result.json['changed'], 0)
+
     def test_manual_review_blocks_shortlist_then_unlocks(self):
         c, csrf, a = self.candidate('language')
         self.answer(c, csrf, 'language', responses={'q1': 'Essay'}, submit=True)
@@ -829,5 +845,3 @@ class ApplicationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-

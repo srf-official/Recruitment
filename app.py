@@ -558,6 +558,12 @@ def create_app(settings=None):
             require(test['type'] != 'prompt', 'Prompt Engineering is evaluated separately.')
             tx.expire(test_id)
             rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(data), filters=data, drive_name=next(d['name'] for d in tx.state['drives'] if d['id'] == test['driveId']))
+            attempt_ids = data.get('attemptIds')
+            if attempt_ids is not None:
+                require(test['type'] == 'aptitude' and isinstance(attempt_ids, list)
+                        and all(isinstance(value, str) for value in attempt_ids), 'Invalid candidate selection.')
+                selected_ids = set(attempt_ids)
+                rows = [(a, g, minutes) for a, g, minutes in rows if a['id'] in selected_ids]
             changed, skipped = 0, 0
             for a, g, _ in rows:
                 if data.get('attemptId') and a['id'] != data['attemptId']:
@@ -1101,5 +1107,3 @@ def create_app(settings=None):
 
 
 application = create_app()
-
-
