@@ -800,7 +800,7 @@ def create_app(settings=None):
             scores = drive.get('gd', {}).get('scores', {}).get(key, {})
             candidates[key] = {'studentKey': key, 'name': member['name'], 'studentId': member['studentId'],
                                'aptitudeScore': None, 'aptitudeShortlisted': False,
-                               'gdScore': scores.get('total'), 'gdRecommended': scores.get('shortlisted') is True,
+                               'gdScore': scores.get('total'), 'gdRecommended': (scores.get('shortlisted') is True) if (any(type(scores.get(f)) in (int, float) for f in ('initiative', 'content', 'communication', 'bodyLanguage')) or scores.get('shortlisted') is True or (scores.get('total') or 0) > 0) else None,
                                'languageScore': None, 'reasoningScore': None, 'promptScore': None,
                                'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none',
                                '_latest': {}}
@@ -809,7 +809,7 @@ def create_app(settings=None):
             for attempt in tx.all_attempts(test['id']):
                 key = student_key(attempt['studentId'])
                 row = candidates.setdefault(key, {'studentKey': key, 'name': attempt['name'], 'studentId': attempt['studentId'],
-                            'aptitudeScore': None, 'aptitudeShortlisted': False, 'gdScore': None, 'gdRecommended': False,
+                            'aptitudeScore': None, 'aptitudeShortlisted': False, 'gdScore': None, 'gdRecommended': None,
                             'languageScore': None, 'reasoningScore': None, 'promptScore': None, 'interviewShortlisted': False, 'interviewManual': False, 'outcome': 'none', '_latest': {}})
                 if attempt.get('startedAt', 0) >= row.get('_latest_name', -1):
                     row['name'], row['studentId'], row['_latest_name'] = attempt['name'], attempt['studentId'], attempt.get('startedAt', 0)
