@@ -513,6 +513,13 @@ function updateResponseTable() {
     target.innerHTML = '<table><thead><tr>' + head + '</tr></thead><tbody>' + (body || '<tr><td colspan="'+(responseColumns(test).length+(language?1:0)+(aptitude?1:0))+'" class="results-empty">No candidates match these filters.</td></tr>') + '</tbody></table>';
     syncResponseSelectionHeader();
 }
+function readableAnswer(q, value) {
+ if(!answerPresent(q,value))return 'Not answered';
+ if(q.type==='text')return String(value);
+ if(q.type==='matching')return (q.pairs||[]).map((p,i)=>p.left+' → '+(q.pairs[value[i]]?.right??'Not answered')).join('\n');
+ if(Array.isArray(value))return value.map(i=>q.options?.[i]??'Not answered').join(q.type==='ranking'?' → ':'; ');
+ return String(value);
+}
 function reviewMarks(s, a, g) { return `<p class="sub">Review answers and set individual marks. Manual marks replace automatic marks. Enter a value between each question’s wrong-answer score and maximum score.</p>${(s.questions || []).map((q, i) => { let result = g.results[i]; return `<section class="review-question"><div><h4>Q${i + 1} · ${esc(q.text)}</h4>${questionContext(q)}<p><b>Candidate answer</b><br>${esc(readableAnswer(q, a.responses?.[q.id]))}</p>${q.referenceAnswer ? `<p><b>Reference answer</b><br>${esc(q.referenceAnswer)}</p>` : ''}${q.reviewNote ? `<div class="notice">${esc(q.reviewNote)}</div>` : ''}<span class="chip">${result.status}</span></div><div><label for="mark-${a.id}-${q.id}">Marks (${q.wrongScore} to ${q.correctScore})</label><input id="mark-${a.id}-${q.id}" type="number" step="any" min="${q.wrongScore}" max="${q.correctScore}" value="${result.score ?? ''}" onchange="saveQuestionMark('${s.id}','${a.id}','${q.id}',this.value)"><small>Saved when changed</small>${a.manualMarks?.[q.id] !== undefined ? `<button class="quiet small" onclick="deleteManualMark('${s.id}','${a.id}','${q.id}')">Reset to automatic</button>` : ''}</div></section>`; }).join('')}`; }
 function promptExportReady(s) { return !!s.closedAt || s.attempts.length > 0 && s.attempts.every(a => a.submittedAt); }
 function showPromptResponses(s) {
