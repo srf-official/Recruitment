@@ -212,7 +212,7 @@ def final_excel(drive, rows):
     for row in rows:
         sheet.append([drive['name'], row['name'], row['studentId'], row.get('aptitudeScore'),
                       'Yes' if row.get('aptitudeShortlisted') else 'No', row.get('gdScore'),
-                      'Yes' if row.get('gdRecommended') else 'No', row.get('gdEvaluator', ''), row.get('languageScore'), row.get('reasoningScore'),
+                      ('' if row.get('gdRecommended') is None else 'Yes' if row['gdRecommended'] else 'No'), row.get('gdEvaluator', ''), row.get('languageScore'), row.get('reasoningScore'),
                       'Yes' if row.get('interviewShortlisted') else 'No', row.get('interviewRemarks', ''), row.get('promptScore'),
                       row.get('interviewer', ''), row.get('interviewComments', ''),
                       {'none': 'None', 'selected': 'Selected', 'on-hold': 'On hold', 'rejected': 'Rejected'}.get(row.get('outcome'), 'None')])
