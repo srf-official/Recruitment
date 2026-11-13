@@ -247,3 +247,27 @@ button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
 @media(max-width:660px){.final-drive-filters .creation-filter{flex:1 1 130px}}
 
 .final-filter-summary{align-items:center;flex-wrap:wrap}.final-filter-reminder{margin-left:auto;color:#c33232;font-size:12px;font-weight:600}
+
+/* Expanded scheduler drive: presentation only. */
+.shell .drive[open]{border:1px solid #68bbb8;box-shadow:none}
+.shell .drive[open]>summary{padding:22px;gap:14px}
+.shell .drive[open]>summary:after{content:'Collapse ↑';transform:none;font-size:11px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;color:var(--ink)}
+.shell .drive[open] .drive-tests{padding:0 22px 0;border-top:0;counter-reset:assessment-stage}
+.shell .drive[open] .drive-members-panel{margin:0 0 20px;padding:16px;min-height:0;border-radius:8px}
+.shell .drive[open] .drive-members-panel h3{font-size:12px;margin:0 0 4px}
+.shell .drive[open] .drive-members-panel p{margin:0;font-size:11px}
+.shell .drive[open] .drive-assessments-heading{display:flex;justify-content:space-between;align-items:center;margin:0 0 12px}
+.shell .drive[open] .drive-assessments-heading h3{font-size:13px;margin:0}
+.shell .drive[open] .drive-assessments-heading small{font-size:11px;color:var(--muted)}
+.shell .drive[open] .test-row{padding:16px;margin:0 0 12px;border:1px solid var(--line);border-radius:8px;counter-increment:assessment-stage}
+.shell .drive[open] .test-row>.row:first-child>div:first-child{position:relative;padding-left:36px;min-height:30px}
+.shell .drive[open] .test-row>.row:first-child>div:first-child:before{content:counter(assessment-stage,decimal-leading-zero);position:absolute;left:0;top:2px;display:grid;place-items:center;width:27px;height:27px;border-radius:6px;background:#eef8f7;color:#008781;font-size:11px;font-weight:600}
+.shell .drive[open] .test-row h3{font-size:13px;margin:0 0 4px}
+.shell .drive[open] .test-row p{font-size:11px}
+.shell .drive[open] .test-row .notice{margin-top:14px;padding:10px 12px;font-size:11px}
+.shell .drive[open] .gd-row>button{margin-top:14px}
+.shell .drive[open] .drive-actions{margin:20px -22px 0;padding:16px 22px;background:#f8fbfc;gap:12px}
+.shell .drive[open] .drive-controls-label{margin-right:auto}
+.shell .drive[open] .drive-controls-label b{display:block;font-size:12px;font-weight:600}
+.shell .drive[open] .drive-controls-label small{display:block;font-size:11px;color:var(--muted);margin-top:4px}
+@media(max-width:660px){.shell .drive[open]>summary{padding:16px}.shell .drive[open]>summary:after{content:'↑';padding:6px}.shell .drive[open] .drive-tests{padding:0 16px}.shell .drive[open] .drive-actions{margin-left:-16px;margin-right:-16px;padding:16px}.shell .drive[open] .drive-controls-label{flex-basis:100%}.shell .drive[open] .test-row{padding:12px}}
