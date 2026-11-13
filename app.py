@@ -548,6 +548,24 @@ def create_app(settings=None):
             values.append(number)
         return values
 
+    @app.post('/api/admin/tests/<test_id>/resume')
+    @admin
+    def resume_attempt(test_id):
+        data = request.get_json()
+        require(isinstance(data, dict), 'Invalid request.')
+        with store.transaction() as tx:
+            test = test_required(tx, test_id)
+            drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
+            require(not test.get('closedAt') and not drive.get('finishedAt'), 'This test or drive has ended.')
+            attempt = next((a for a in tx.all_attempts(test_id) if a['id'] == data.get('attemptId')), None)
+            require(attempt is not None and attempt.get('submittedAt'), 'Submitted attempt not found.')
+            require(not attempt.get('importedSource'), 'Imported attempts cannot be resumed.')
+            now = now_ms()
+            attempt.setdefault('resumeHistory', []).append({'previousSubmittedAt': attempt['submittedAt'],
+                'previousReason': attempt.get('reason'), 'previousDeadline': attempt['deadline'], 'resumedAt': now, 'minutes': 30})
+            attempt.update(submittedAt=None, reason=None, deadline=now + 30 * 60000)
+            return jsonify(resumed=True)
+
     @app.post('/api/admin/tests/<test_id>/shortlist')
     @admin
     def shortlist(test_id):

@@ -393,6 +393,21 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 200)
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 409)
 
+    def test_resume_preserves_answers_and_grants_thirty_minutes(self):
+        c, csrf, _ = self.candidate('language', student='RESUME')
+        self.answer(c, csrf, responses={'q1': 'Saved answer'}, submit=True, kind='language')
+        test_id = self.tests['language']
+        before = next(t for t in self.state()['state']['sessions'] if t['id'] == test_id)['attempts'][0]
+        result = self.admin.post(f'/api/admin/tests/{test_id}/resume', json={'attemptId': before['id']}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(result.status_code, 200, result.json)
+        after = next(t for t in self.state()['state']['sessions'] if t['id'] == test_id)['attempts'][0]
+        self.assertIsNone(after['submittedAt'])
+        self.assertEqual(after['responses'], before['responses'])
+        self.assertAlmostEqual(after['deadline'] - time.time()*1000, 1800000, delta=5000)
+        self.assertEqual(after['sequence'], before['sequence'])
+        again = self.admin.post(f'/api/admin/tests/{test_id}/resume', json={'attemptId': before['id']}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(again.status_code, 400)
+
     def test_marks_filters_bulk_shortlist_and_excel(self):
         c, csrf, a = self.candidate(name='=HYPERLINK("https://invalid")', student='00001')
         self.answer(c, csrf, submit=True)
