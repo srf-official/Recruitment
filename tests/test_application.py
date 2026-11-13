@@ -393,6 +393,18 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 200)
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 409)
 
+    def test_final_revert_clears_decision_only_for_targeted_candidate(self):
+        c, csrf, _ = self.candidate(student='KEEP')
+        self.answer(c, csrf, submit=True)
+        headers = {'X-CSRF-Token': self.csrf}
+        url = f'/api/admin/drives/{self.drive}/final-shortlist'
+        self.admin.post(url, json={'studentIds': ['GD-SEED','KEEP'], 'value': True}, headers=headers)
+        result = self.admin.post(url, json={'studentIds': ['GD-SEED'], 'value': None}, headers=headers)
+        self.assertEqual(result.status_code, 200, result.json)
+        decisions = self.state()['state']['drives'][0]['finalDecisions']
+        self.assertNotIn('interviewShortlisted', decisions['gd-seed'])
+        self.assertTrue(decisions['keep']['interviewShortlisted'])
+
     def test_marks_filters_bulk_shortlist_and_excel(self):
         c, csrf, a = self.candidate(name='=HYPERLINK("https://invalid")', student='00001')
         self.answer(c, csrf, submit=True)

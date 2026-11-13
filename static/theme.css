@@ -245,3 +245,5 @@ button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
 .final-drive-filters select{width:100%;min-height:44px}
 .final-drive-count{font-size:12px;color:var(--muted);margin:0 0 12px}
 @media(max-width:660px){.final-drive-filters .creation-filter{flex:1 1 130px}}
+
+.final-filter-summary{align-items:center;flex-wrap:wrap}.final-filter-reminder{margin-left:auto;color:#c33232;font-size:12px;font-weight:600}

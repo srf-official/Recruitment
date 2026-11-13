@@ -847,7 +847,7 @@ def create_app(settings=None):
         require(isinstance(data, dict) and isinstance(data.get('studentIds'), list) and len(data['studentIds']) <= 2000,
                 'Invalid shortlist request.')
         value = data.get('value', True)
-        require(type(value) is bool, 'Shortlisting must be true or false.')
+        require(value is None or type(value) is bool, 'Shortlisting must be true, false or unset.')
         with store.transaction() as tx:
             drive = next((d for d in tx.state['drives'] if d['id'] == drive_id), None)
             require(drive is not None, 'Drive not found.')
@@ -858,7 +858,11 @@ def create_app(settings=None):
                 key = student_key(student)
                 require(key in rows, 'A selected candidate is not in this drive.')
                 decision = drive.setdefault('finalDecisions', {}).setdefault(key, {})
-                if decision.get('interviewShortlisted') is not value:
+                if value is None:
+                    if 'interviewShortlisted' in decision:
+                        decision.pop('interviewShortlisted')
+                        changed += 1
+                elif decision.get('interviewShortlisted') is not value:
                     decision['interviewShortlisted'] = value
                     changed += 1
                 decision['interviewManual'] = False
