@@ -393,6 +393,22 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 200)
         self.assertEqual(self.put_state(state['state'], state['revision']).status_code, 409)
 
+    def test_language_shortlist_selected_candidates_only(self):
+        c, csrf, _ = self.candidate('language', student='GD-SEED')
+        self.answer(c, csrf, kind='language', responses={'q1':'Written'}, submit=True)
+        test_id = self.tests['language']
+        attempt = next(t for t in self.state()['state']['sessions'] if t['id'] == test_id)['attempts'][0]
+        headers = {'X-CSRF-Token': self.csrf}
+        self.admin.post(f'/api/admin/tests/{test_id}/marks', json={'attemptId':attempt['id'],'questionId':'q1','score':2}, headers=headers)
+        url = f'/api/admin/tests/{test_id}/shortlist'
+        result = self.admin.post(url, json={'attemptIds':[attempt['id']],'value':True}, headers=headers)
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual(result.json['changed'], 1)
+        result = self.admin.post(url, json={'attemptIds':[],'value':False}, headers=headers)
+        self.assertEqual(result.json['changed'], 0)
+        result = self.admin.post(url, json={'attemptIds':[attempt['id']],'value':False}, headers=headers)
+        self.assertEqual(result.json['changed'], 1)
+
     def test_final_revert_clears_decision_only_for_targeted_candidate(self):
         c, csrf, _ = self.candidate(student='KEEP')
         self.answer(c, csrf, submit=True)

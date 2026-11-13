@@ -560,7 +560,7 @@ def create_app(settings=None):
             rows = results_rows(test, tx.all_attempts(test_id), *filter_numbers(data), filters=data, drive_name=next(d['name'] for d in tx.state['drives'] if d['id'] == test['driveId']))
             attempt_ids = data.get('attemptIds')
             if attempt_ids is not None:
-                require(test['type'] == 'aptitude' and isinstance(attempt_ids, list)
+                require(test['type'] in {'aptitude', 'language'} and isinstance(attempt_ids, list)
                         and all(isinstance(value, str) for value in attempt_ids), 'Invalid candidate selection.')
                 selected_ids = set(attempt_ids)
                 rows = [(a, g, minutes) for a, g, minutes in rows if a['id'] in selected_ids]

@@ -73,6 +73,13 @@ const run=code=>vm.runInContext(code,context);
  assert(!document.querySelector('#responseTable').innerHTML.includes('shortlist-check'));
  run("state.sessions[0].type='language';openResultsTable('c1')");
  assert(document.querySelector('#responseTable').innerHTML.includes('Filter Language score (20)'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('response-select-all'));
+ run('selectAllResponseRows(true)');
+ assert.equal(document.querySelector('#response-select-all').checked,true);
+ assert.equal(run('responseSelected.size'),1);
+ run('selectAllResponseRows(false)');
+ assert.equal(run('responseSelected.size'),0);
+
  assert(document.querySelector('#responseTable').innerHTML.includes('Filter Reasoning score (5)'));
  assert(document.querySelector('#score-distribution').innerHTML.includes('Score distribution'));
  assert(document.querySelector('#modal').innerHTML.includes('Shortlist filtered candidates'));
