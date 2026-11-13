@@ -243,6 +243,39 @@ def create_app(settings=None):
         require(test is not None, 'This test link is unavailable.')
         return test
 
+    @app.post('/api/admin/tests/<test_id>/candidates')
+    @admin
+    def add_aptitude_candidate(test_id):
+        data = request.get_json(silent=True) or {}
+        name = clean_text(data.get('name', ''), 100, 'candidate name')
+        student_id = clean_text(data.get('studentId', ''), 60, 'student ID')
+        require(name and student_id, 'Candidate name and student ID are required.')
+        try:
+            score, elapsed = float(data.get('score')), float(data.get('minutes'))
+        except (TypeError, ValueError):
+            raise RuleError('Enter numeric marks and time taken.')
+        require(math.isfinite(score) and -10000 <= score <= 10000, 'Enter valid marks.')
+        require(math.isfinite(elapsed) and 0 <= elapsed <= 1440, 'Time must be between 0 and 1440 minutes.')
+        with store.transaction() as tx:
+            test = next((t for t in tx.state['sessions'] if t['id'] == test_id), None)
+            require(test is not None and test['type'] == 'aptitude', 'Choose an Aptitude session.')
+            drive = next(d for d in tx.state['drives'] if d['id'] == test['driveId'])
+            require(not drive.get('finishedAt'), 'Cannot add candidates to a finished drive.')
+            for other in tx.state['sessions']:
+                if other['driveId'] == drive['id']:
+                    require(not any(student_key(a['studentId']) == student_key(student_id)
+                                    for a in tx.all_attempts(other['id'])), 'This student ID already exists in this drive. Use a new student ID.')
+            now = now_ms()
+            started = now - int(elapsed * 60000)
+            attempt = {'id': str(uuid.uuid4()), 'name': name, 'studentId': student_id,
+                       'importedScore': round(score, 4), 'importedElapsedMinutes': round(elapsed, 4),
+                       'startedAt': started, 'deadline': now, 'submittedAt': now,
+                       'reason': 'admin-added', 'responses': {}, 'sequence': 0,
+                       'manualMarks': {}, 'shortlisted': True, 'importedSource': 'Admin entry'}
+            tx.add_attempt(test_id, attempt, hashlib.sha256(student_key(student_id).encode()).hexdigest(),
+                           hashlib.sha256(secrets.token_bytes(32)).hexdigest())
+            return jsonify(added=True, attemptId=attempt['id'])
+
     @app.post('/api/admin/drives/<drive_id>/aptitude/import')
     @admin
     def import_aptitude_results(drive_id):
