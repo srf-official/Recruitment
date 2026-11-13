@@ -256,6 +256,24 @@ class ApplicationTests(unittest.TestCase):
     def state(self):
         return self.admin.get('/api/admin/state').json
 
+    def test_admin_added_candidate_can_start_later_test(self):
+        url = f'/api/admin/tests/{self.tests["aptitude"]}/candidates'
+        data = {'name': 'Replacement Candidate', 'studentId': 'RETAKE-NEW', 'score': 21, 'minutes': 12.5}
+        result = self.admin.post(url, json=data, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(result.status_code, 200, result.json)
+        test = next(t for t in self.state()['state']['sessions'] if t['id'] == self.tests['aptitude'])
+        added = next(a for a in test['attempts'] if a['studentId'] == 'RETAKE-NEW')
+        self.assertTrue(added['shortlisted'])
+        self.assertEqual(grade(test['questions'], added)['total'], 21)
+        self.assertEqual(added['importedElapsedMinutes'], 12.5)
+        duplicate = self.admin.post(url, json={**data, 'studentId': 'retake-new'}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(duplicate.status_code, 400)
+        guest, csrf, payload = self.candidate(kind='language', student='RETAKE-NEW')
+        self.assertEqual(payload['name'], 'Replacement Candidate')
+        invalid = self.admin.post(url, json={**data, 'studentId': 'OTHER', 'minutes': -1}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(invalid.status_code, 400)
+
+
     def test_later_tests_resolve_aptitude_identity_and_reject_unknown_ids(self):
         guest = self.app.test_client()
         csrf = guest.get('/api/auth/session').json['csrf']
