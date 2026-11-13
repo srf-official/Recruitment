@@ -299,5 +299,13 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run("sortTableRows(sortRows,'aptitude',(r,k)=>r[k])[0].name"),'Ten');
  assert(fs.readFileSync('static/app.js','utf8').includes("Smallest to largest"));
  assert(fs.readFileSync('static/app.js','utf8').includes("Largest to smallest"));
+ // Review marks must render saved canonical option indexes, including option zero and unanswered questions.
+ assert.equal(run("readableAnswer({type:'single',options:['First','Second']},[0])"),'First');
+ assert.equal(run("readableAnswer({type:'single',options:['First','Second']},[])"),'Not answered');
+ assert.equal(run("readableAnswer({type:'text'},'Saved text')"),'Saved text');
+ run(`state.sessions=[{id:'review-test',type:'language',name:'Review test',questions:[{id:'q1',type:'single',text:'Review question',options:['First','Second'],key:[0],correctScore:1,wrongScore:0}],attempts:[{id:'review-a',name:'Candidate',studentId:'ID',startedAt:1,submittedAt:2,responses:{q1:[0]}}]}];responseSession='review-test';responseFilters={};responseColumnFilters={};reviewAttempt='review-a';updateResponseTable()`);
+ assert(document.querySelector('#responseTable').innerHTML.includes('Candidate answer'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('First'));
+ assert(document.querySelector('#responseTable').innerHTML.includes('mark-review-a-q1'));
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
