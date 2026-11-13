@@ -248,8 +248,18 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run("lastExport.body.studentIds.join(',')"),'1,2');
  await run("revertFilteredFinal()");
  assert.deepEqual(finalRequest.body.studentIds,['1','2']);
- assert.equal(finalRequest.body.value,false);
+ assert.equal(finalRequest.body.value,null);
 
+ run("selectAllFinalRows(true)");
+ assert.equal(run('finalSelected.size'),2);
+ run("selectAllFinalRows(false);selectFinalRow('2',true)");
+ assert.equal(run("finalActionRows().map(r=>r.studentId).join(',')"),'2');
+ await run('shortlistFilteredFinal()');
+ assert.deepEqual(finalRequest.body.studentIds,['2']);
+ await run('revertFilteredFinal()');
+ assert.deepEqual(finalRequest.body.studentIds,['2']);
+ assert.equal(finalRequest.body.value,null);
+ run('finalSelected.clear()');
  // Status changes remain local until Save and preserve the table scroll position.
  run("state.drives=[{id:'status-drive',name:'Status drive',finalDecisions:{}}];finalDriveCurrent='status-drive';combinedDriveScores=()=>[{name:'Person',studentId:'ID',interviewSaved:false,outcomeSaved:false,outcome:'none'}];finalStatusDrafts={};finalScoreFilters={};");
  let statusCalls=0;
