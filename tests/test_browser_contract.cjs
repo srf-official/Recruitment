@@ -10,15 +10,17 @@ const node=()=>({innerHTML:'',textContent:'',value:'',style:{},hidden:true,class
 const document={addEventListener(){},removeEventListener(){},querySelector(s){if(!elements.has(s))elements.set(s,node());return elements.get(s)},querySelectorAll(){return[]}};
 const initial={drives:[],sessions:[],questionSets:{aptitude:[],language:[],prompt:[]}};
 let saved=structuredClone(initial),revision=0;
+let monotonicNow=0,candidateStatus=null,candidateRequests=0;
 const fetch=async(path,options={})=>{
  let body=options.body?JSON.parse(options.body):null,data;
  if(path==='/api/auth/session')data={admin:true,csrf:'csrf-test'};
  else if(path==='/api/admin/state'&&options.method==='PUT'){assert.equal(body.revision,revision);saved=body.state;revision++;data={state:structuredClone(saved),revision}}
  else if(path==='/api/admin/state')data={state:structuredClone(saved),revision};
+ else if(path==='/api/candidate/timer-test'&&options.method==='GET'){candidateRequests++;data=structuredClone(candidateStatus)}
  else throw Error('Unexpected request '+path);
  return {ok:true,json:async()=>data};
 };
-const context=vm.createContext({document,fetch,crypto:crypto.webcrypto,location:{pathname:'/',origin:'https://test.example'},history:{replaceState(){}},window:{addEventListener(){},open(){}},setInterval(){},setTimeout(){},clearTimeout(){},navigator:{},console,Date,Math,URLSearchParams,confirm(){return true}});
+const context=vm.createContext({document,fetch,crypto:crypto.webcrypto,location:{pathname:'/',origin:'https://test.example'},history:{replaceState(){}},window:{addEventListener(){},open(){}},setInterval(){},setTimeout(){},clearTimeout(){},navigator:{},performance:{now:()=>monotonicNow},console,Date,Math,URLSearchParams,confirm(){return true}});
 const run=code=>vm.runInContext(code,context);
 (async()=>{
  run(script);await run('bootstrap()');
@@ -329,5 +331,29 @@ const run=code=>vm.runInContext(code,context);
  assert.equal(run('gdRecommendation({initiative:0,total:0,shortlisted:false},true)'),false);
  assert.equal(run('gdRecommendation({initiative:3,total:3,shortlisted:true},true)'),true);
  assert.equal(run("finalValue({gdRecommended:null},'gdRecommended')"),'');
+ // A local zero never submits. The server can correct the timer or confirm expiry.
+ const start=Date.now(), deadline=start+1800000;
+ const question={id:'timer-q',type:'text',text:'Synthetic question'};
+ const attempt={id:'timer-a',name:'Synthetic Candidate',studentId:'0001',responses:{},deadline,submittedAt:null,sequence:0};
+ const test={id:'timer-test',type:'language',name:'Synthetic test',questions:[question],attempts:[attempt]};
+ context.fetch=fetch;
+ context.timerTest=structuredClone(test);
+ monotonicNow=1800000;
+ run("view='candidate';candidateSession='timer-test';currentAttempt='timer-a';state.sessions=[timerTest];quizIndex=0;candidateDirty=false;candidateClock={serverMs:timerTest.attempts[0].deadline-1800000,sampleMs:0};render()");
+ assert(document.querySelector('#app').innerHTML.includes('candidate-header-timed'));
+ assert.equal(run('timeLeft(currentQuiz().a)'),0);
+ candidateStatus={test,serverNow:start+15000};
+ const checking=run('pollCandidate()');
+ run("setQuizResponse('Still editing')");
+ await checking;
+ assert.equal(candidateRequests,1);
+ assert.equal(run('timeLeft(currentQuiz().a)'),1785);
+ assert.equal(run("currentQuiz().a.responses['timer-q']"),'Still editing');
+ assert.equal(run('currentQuiz().a.submittedAt'),null);
+ monotonicNow+=1785000;
+ candidateStatus={test:{...test,attempts:[{...attempt,reason:'timeout',submittedAt:deadline}]},serverNow:deadline};
+ await run('pollCandidate()');
+ assert.equal(candidateRequests,2);
+ assert(document.querySelector('#app').innerHTML.includes('Time is over.'));
  console.log('PASS: production UI boots, persists admin changes through API, uses opaque links, starts candidates through server adapter, shows confirmation, and rejects stale polling updates.');
 })().catch(e=>{console.error(e);process.exitCode=1});
