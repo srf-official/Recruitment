@@ -26,7 +26,7 @@ function nav(page) { view = page; render(); }
 function dialog(title, body, footer = '', wide = false) { modal.className = wide ? 'wide' : ''; modal.innerHTML = `<div class="modal-head"><h2>${title}</h2><button class="quiet small" onclick="modal.close()" aria-label="Close dialog">✕</button></div><div class="modal-body">${body}</div>${footer ? `<div class="modal-foot">${footer}</div>` : ''}`; modal.showModal(); }
 function confirmStop(id) { let s = state.sessions.find(x => x.id === id); dialog('End this test?', `<p><b>${esc(s.name)}</b></p><p class="sub">All active candidates will be submitted and locked, including those with partial or blank responses.</p><div class="notice">This closes the session for everyone. You cannot reopen it.</div>`, `<button onclick="modal.close()">Keep test running</button><button class="danger" onclick="stopSession('${id}')">Stop test for everyone</button>`); }
 function stopSession(id) { let s = state.sessions.find(x => x.id === id); finalize(s, 'admin'); modal.close(); render(); toast('Test ended. All active attempts are saved and locked.'); }
-function candidateHeader(s, a) { return `<header class="candidate-header"><div class="tool-name">Talent Hub</div>${a ? `<div class="timerbox"><div class="time-label">YOUR TIME REMAINING</div><div class="time" data-clock="${a.id}">${clock(timeLeft(a))}</div></div>` : ''}${COMPANY_LOGO}</header>`; }
+function candidateHeader(s, a) { return `<header class="candidate-header${a ? ' candidate-header-timed' : ''}"><div class="tool-name">Talent Hub</div>${a ? `<div class="timerbox"><div class="time-label">YOUR TIME REMAINING</div><div class="time" data-clock="${a.id}">${clock(timeLeft(a))}</div></div>` : ''}${COMPANY_LOGO}</header>`; }
 function words(s) { return s.trim() ? s.trim().split(/\s+/).length : 0; }
 function renderDone(s, a) { let title = a.reason === 'timeout' ? 'Time is over.' : a.reason === 'admin' ? 'The test has ended.' : 'You’re all done.'; app.innerHTML = candidateHeader(s, null) + `<main class="candidate-main"><section class="done card"><div class="card-body"><div class="done-icon">✓</div><div class="eyebrow">RESPONSE RECEIVED</div><h1 style="margin-top:12px">${title}</h1><p class="sub">Your response has been saved. Thank you.</p><p class="muted" style="font-size:12px;margin:22px 0">${esc(a.name)} · ${esc(a.studentId)}<br>${esc(s.name)}</p><div class="notice">Your response is submitted and can no longer be edited.</div></div></section></main>`; }
 // Drive scheduler prototype. Tests are scoped to a drive, with immutable question snapshots per link.
@@ -171,7 +171,7 @@ function renderCandidate() { let { s, a } = currentQuiz(); if (!s) {
     document.querySelector('#entryForm').onsubmit = startCandidate;
     return;
 } quizIndex = Math.min(quizIndex, qs.length - 1); let q = qs[quizIndex]; app.innerHTML = candidateHeader(s, a) + `<main class="candidate-main"><div class="row between" style="margin-bottom:20px"><div><h1 style="font-size:24px">${typeInfo(s.type).name}</h1><p class="sub">${esc(s.name)}</p></div><div>${esc(a.name)} · ${esc(a.studentId)}</div></div><div class="quiz-layout"><section class="card"><div class="card-head"><h2>Question ${quizIndex + 1} of ${qs.length}</h2><span class="chip">${FORMATS[q.type]}</span></div><div class="card-body"><article class="question-item" style="margin:0">${questionContext(q)}${formattedQuestion(q)}${s.type === 'prompt' ? '' : `<p class="sub">Correct +${q.correctScore} · Wrong ${q.wrongScore} · Unanswered 0${q.type === 'text' ? ' · Manually reviewed' : ''}</p>`}${candidateQuestion(q, a.responses?.[q.id])}</article><div class="row between" style="margin-top:20px"><button ${quizIndex === 0 ? 'disabled' : ''} onclick="quizIndex--;render()">← Previous</button><button ${quizIndex === qs.length - 1 ? 'disabled' : ''} onclick="quizIndex++;render()">Next →</button></div></div></section><section class="card quiz-side"><div class="card-body"><b>Question navigator</b><p class="sub" style="margin-top:8px">${qs.filter(q => answerPresent(q, a.responses?.[q.id])).length} of ${qs.length} answered</p><div class="quiz-nav">${qs.map((x, i) => `<button class="${i === quizIndex ? 'current' : answerPresent(x, a.responses?.[x.id]) ? 'answered' : ''}" onclick="quizIndex=${i};render()">${i + 1}</button>`).join('')}</div><button class="primary" style="width:100%;margin-top:20px" onclick="confirmSubmit()">Submit test</button></div></section></div></main>`; }
-function setQuizResponse(value) { let { s, a } = currentQuiz(); if (!a || a.submittedAt || s.closedAt || serverNow() >= a.deadline) {
+function setQuizResponse(value) { let { s, a } = currentQuiz(); if (!a || a.submittedAt || s.closedAt) {
     render();
     return;
 } let q = s.questions[quizIndex]; a.responses = a.responses || {}; if (value === undefined)
@@ -615,8 +615,13 @@ function openResultsTable(id) { expire(); settlePromptSessions(); let s = state.
 // Server adapter for the approved two-page UI. No assessment keys or candidate records ship in JS.
 let adminMutationEpoch = 0, adminReloadSequence = 0;
 let csrf = '', revision = 0, serverOffset = 0, adminPending = null, adminSaving = null, adminBlocked = false;
-let candidateDirty = false, candidateSaving = null, saveDelay = null, lastPoll = 0, expiryRequest = false;
-function serverNow() { return Date.now() + serverOffset; }
+let candidateDirty = false, candidateSaving = null, saveDelay = null;
+let lastPoll = -Infinity, candidatePolling = false, candidateClock = null;
+function serverNow() {
+    if (view === 'candidate' && candidateClock)
+        return candidateClock.serverMs + performance.now() - candidateClock.sampleMs;
+    return Date.now() + serverOffset;
+}
 function uuid() { return crypto.randomUUID(); }
 function timeLeft(a) { return Math.max(0, Math.ceil((a.deadline - serverNow()) / 1000)); }
 function expire() { return false; } // The server alone expires and finalizes attempts.
@@ -630,8 +635,11 @@ async function api(path, method = 'GET', body) { if(method !== 'GET' && path.sta
     let e = new Error(data.error || 'Request failed.');
     e.status = response.status;
     throw e;
-} if (data.serverNow)
-    serverOffset = data.serverNow - Date.now(); return data; }
+} if (data.serverNow) {
+    serverOffset = data.serverNow - Date.now();
+    if (path.startsWith('/api/candidate/') && (!candidateClock || data.serverNow >= candidateClock.serverMs))
+        candidateClock = {serverMs: data.serverNow, sampleMs: performance.now()};
+} return data; }
 function hydrate(value) { state = value; state.durations = { aptitude: 15, language: 20, prompt: 30, ...(value.durations || {}) }; state.banks = {}; TYPES.forEach(t => state.banks[t.id] = bankText(t.id)); state.sessions.forEach(s => { s.question = s.questions?.map(q => q.text).join('\n\n') || ''; s.attempts = s.attempts || []; }); }
 function editableState() { return { drives: state.drives, sessions: state.sessions, questionSets: state.questionSets, durations: state.durations }; }
 function save() { if (view === 'candidate') {
@@ -940,34 +948,42 @@ catch (e) {
     document.querySelector('#startupError').textContent = e.message;
     handleError(e);
 } }
-setInterval(async () => { if (view !== 'candidate')
-    return; let { s, a } = currentQuiz(); document.querySelectorAll('[data-clock]').forEach(el => { if (a) {
-    el.textContent = clock(timeLeft(a));
-    el.classList.toggle('warning', timeLeft(a) < 300);
-} }); if (!s || a?.submittedAt)
-    return; try {
-    if (a && timeLeft(a) === 0 && !expiryRequest) {
-        expiryRequest = true;
-        try {
-            await flushCandidate(true);
-        }
-        finally {
-            expiryRequest = false;
-        }
-    }
-    if (Date.now() - lastPoll > 5000) {
-        lastPoll = Date.now();
-        let data = await api('/api/candidate/' + s.id), next = absorbCandidate(data);
-        if (!a && document.querySelector('.scheduled-entry') && (!data.test.availableAt || serverNow() >= data.test.availableAt)) render();
-        if (next?.submittedAt || data.test.closedAt)
+function updateCandidateCountdown(attempt) {
+    const remaining = timeLeft(attempt);
+    document.querySelectorAll('[data-clock]').forEach(el => {
+        el.textContent = clock(remaining);
+        el.classList.toggle('warning', remaining < 300);
+    });
+    return remaining;
+}
+async function pollCandidate() {
+    if (view !== 'candidate') return;
+    const {s, a} = currentQuiz();
+    const remaining = a ? updateCandidateCountdown(a) : null;
+    if (!s || a?.submittedAt || candidatePolling) return;
+    const now = performance.now();
+    if (now - lastPoll < (remaining === 0 ? 1000 : 5000)) return;
+    lastPoll = now;
+    candidatePolling = true;
+    try {
+        // A local zero prompts a status check. Only the server can expire the attempt.
+        const data = await api('/api/candidate/' + s.id);
+        if (view !== 'candidate' || candidateSession !== s.id || currentAttempt !== (a?.id ?? null)) return;
+        const next = absorbCandidate(data);
+        if (next?.submittedAt || data.test.closedAt ||
+            (!a && document.querySelector('.scheduled-entry') && (!data.test.availableAt || serverNow() >= data.test.availableAt)))
             render();
-        else if (!candidateDirty && !candidateSaving)
+        else if (next)
+            updateCandidateCountdown(next);
+        if (!next?.submittedAt && !data.test.closedAt && !candidateDirty && !candidateSaving)
             statusMessage('Connected · Response saved');
+    } catch (e) {
+        statusMessage('Connection interrupted. Keep this page open; retrying automatically.', true);
+    } finally {
+        candidatePolling = false;
     }
 }
-catch (e) {
-    statusMessage('Connection interrupted. Keep this page open; retrying automatically.', true);
-} }, 1000);
+setInterval(pollCandidate, 1000);
 window.addEventListener('online', () => { if (view === 'candidate')
     flushCandidate().catch(handleError); });
 window.addEventListener('beforeunload', event => { if (candidateDirty || adminPending || adminSaving) {
