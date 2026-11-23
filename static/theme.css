@@ -271,3 +271,5 @@ button.candidate-review-action:hover{background:#ddd5f2;border-color:#b2a0d7}
 .shell .drive[open] .drive-controls-label b{display:block;font-size:12px;font-weight:600}
 .shell .drive[open] .drive-controls-label small{display:block;font-size:11px;color:var(--muted);margin-top:4px}
 @media(max-width:660px){.shell .drive[open]>summary{padding:16px}.shell .drive[open]>summary:after{content:'↑';padding:6px}.shell .drive[open] .drive-tests{padding:0 16px}.shell .drive[open] .drive-actions{margin-left:-16px;margin-right:-16px;padding:16px}.shell .drive[open] .drive-controls-label{flex-basis:100%}.shell .drive[open] .test-row{padding:12px}}
+
+.candidate-header-timed { position: sticky; top: 0; z-index: 10; }
