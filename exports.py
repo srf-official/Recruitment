@@ -169,6 +169,78 @@ def gd_excel(drive, mode='roster'):
     return workbook_bytes(book)
 
 
+def option_letter(index):
+    """Use A–Z, then AA–AD for the largest supported option lists."""
+    return ('A' if index >= 26 else '') + chr(ord('A') + index % 26)
+
+
+def question_set_docx(questions, *, include_key):
+    doc = Document()
+    section = doc.sections[0]
+    section.page_width, section.page_height = Inches(8.5), Inches(11)
+    section.top_margin = section.bottom_margin = Inches(1)
+    section.left_margin = section.right_margin = Inches(1)
+    normal = doc.styles['Normal']
+    normal.font.name, normal.font.size = 'Segoe UI', Pt(10)
+    normal.paragraph_format.space_after = Pt(8)
+    normal.paragraph_format.line_spacing = 278 / 240  # Word stores this value in 240ths of a line.
+    answer_key = []
+    for number, question in enumerate(questions, 1):
+        context, table_data = question.get('context'), question.get('table')
+        if include_key:
+            heading = doc.add_paragraph()
+            heading.paragraph_format.space_after = Pt(0)
+            heading.paragraph_format.keep_with_next = True
+            heading.add_run(f'Question {number}').bold = True
+        if context:
+            doc.add_paragraph(context)
+        if table_data:
+            table = doc.add_table(rows=0, cols=max(map(len, table_data)))
+            table.style = 'Table Grid'
+            for values in table_data:
+                cells = table.add_row().cells
+                for cell, value in zip(cells, values):
+                    cell.text = value
+        pairs = question.get('pairs', []) if question['type'] == 'matching' else []
+        options = question.get('options', []) if include_key else []
+        stem = doc.add_paragraph(question['text'])
+        if include_key and (options or pairs):
+            stem.paragraph_format.space_after = Pt(0)
+            stem.paragraph_format.keep_with_next = True
+        if not include_key:
+            continue
+        if pairs:
+            right_choices = list(reversed(pairs))
+            doc.add_paragraph('\n'.join(f"{i + 1}. {pair['left']}" for i, pair in enumerate(pairs)))
+            options = [pair['right'] for pair in right_choices]
+            answer = ', '.join(f'{i + 1} → {option_letter(len(pairs) - i - 1)}' for i in range(len(pairs)))
+        elif question['type'] == 'text':
+            answer = question.get('referenceAnswer') or 'Manual review'
+        else:
+            separator = ' → ' if question['type'] == 'ranking' else ', '
+            answer = separator.join(map(option_letter, question.get('key', []))) or 'No answer key set'
+        if options:
+            choices = [f'{option_letter(i)}. {option}' for i, option in enumerate(options)]
+            inline = sum(map(len, choices)) + 3 * (len(choices) - 1) <= 75 and all(
+                '\n' not in choice for choice in choices)
+            doc.add_paragraph(('   ' if inline else '\n').join(choices))
+        answer_key.append(answer)
+
+    if include_key:
+        heading = doc.add_paragraph()
+        heading.paragraph_format.page_break_before = True
+        heading.paragraph_format.keep_with_next = True
+        heading.add_run('Answer Key').bold = True
+        for answer in answer_key:
+            entry = doc.add_paragraph(answer, style='List Number')
+            entry.paragraph_format.left_indent = Inches(0.5)
+            entry.paragraph_format.first_line_indent = Inches(-0.25)
+
+    stream = io.BytesIO()
+    doc.save(stream)
+    return stream.getvalue()
+
+
 def words(drive, test, attempts):
     stream, names = io.BytesIO(), set()
     with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as archive:
