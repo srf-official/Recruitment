@@ -193,7 +193,8 @@ def create_app(settings=None):
         with store.transaction() as tx:
             questions = tx.state['questionSets'].get(kind, [])
         require(questions, 'Add questions before exporting.')
-        return send_file(io.BytesIO(question_set_docx(questions, include_key=kind != 'prompt')),
+        payload = question_set_docx(questions, include_key=kind != 'prompt', group_reasoning=kind == 'language')
+        return send_file(io.BytesIO(payload),
                          as_attachment=True, download_name=f'{names[kind]} Question Set.docx',
                          mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
