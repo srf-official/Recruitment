@@ -26,6 +26,29 @@ const run=code=>vm.runInContext(code,context);
  run(script);await run('bootstrap()');
  assert(document.querySelector('#app').innerHTML.includes('Session scheduler'));
  assert(!document.querySelector('#app').innerHTML.includes("nav('dashboard')"));
+ const overviewTotals=html=>[...html.matchAll(/<li class="overview-summary-tile">[\s\S]*?<div><span>([^<]+)<\/span><strong>([^<]+)<\/strong>/g)].map(([,label,count])=>[label,Number(count)]);
+ const labels=['Number of drives','Candidates attended','Interview shortlisted','Selected','On hold'];
+ assert.deepEqual(overviewTotals(run('overviewPage()')),labels.map(label=>[label,0]));
+ const overviewFixture=run(`(() => {
+    const previous=state;
+    try {
+        state={
+            drives:[
+                {id:'live',name:'Live fixture',createdAt:1,finalDecisions:{a:{interviewShortlisted:true,outcome:'selected'}}},
+                {id:'finished',name:'Finished fixture',createdAt:1,finishedAt:2,finalDecisions:{a:{interviewShortlisted:true,outcome:'on-hold'}}}
+            ],
+            sessions:[
+                {driveId:'live',type:'aptitude',attempts:[{studentId:'A',startedAt:1},{studentId:'B'}]},
+                {driveId:'live',type:'language',attempts:[{studentId:'a',submittedAt:2}]},
+                {driveId:'finished',type:'aptitude',attempts:[{studentId:'A',submittedAt:1},{studentId:'C',submittedAt:1}]}
+            ]
+        };
+        return overviewPage();
+    } finally { state=previous; }
+ })()`);
+ assert.deepEqual(overviewTotals(overviewFixture),labels.map((label,index)=>[label,[2,3,2,1,1][index]]));
+ assert(overviewFixture.indexOf('Recruitment totals')>overviewFixture.indexOf('<h1>Overview</h1>'));
+ assert(overviewFixture.indexOf('Recruitment totals')<overviewFixture.indexOf('Live Drives'));
  run('startDrive()');document.querySelector('#driveName').value='Synthetic College';
  document.querySelector('#driveForm').onsubmit({preventDefault(){}});
  await run('flushAdmin()');assert.equal(saved.drives.length,1);
