@@ -174,7 +174,23 @@ def option_letter(index):
     return ('A' if index >= 26 else '') + chr(ord('A') + index % 26)
 
 
-def question_set_docx(questions, *, include_key):
+def question_material(question):
+    return question.get('context') or '', question.get('table') or []
+
+
+def add_question_material(doc, context, table_data):
+    if context:
+        doc.add_paragraph(context)
+    if table_data:
+        table = doc.add_table(rows=0, cols=max(map(len, table_data)))
+        table.style = 'Table Grid'
+        for values in table_data:
+            cells = table.add_row().cells
+            for cell, value in zip(cells, values):
+                cell.text = value
+
+
+def question_set_docx(questions, *, include_key, group_reasoning=False):
     doc = Document()
     section = doc.sections[0]
     section.page_width, section.page_height = Inches(8.5), Inches(11)
@@ -184,23 +200,27 @@ def question_set_docx(questions, *, include_key):
     normal.font.name, normal.font.size = 'Segoe UI', Pt(10)
     normal.paragraph_format.space_after = Pt(8)
     normal.paragraph_format.line_spacing = 278 / 240  # Word stores this value in 240ths of a line.
+    reasoning_questions = questions[20:25] if group_reasoning else []
+    shared_context, shared_table = question_material(reasoning_questions[0]) if reasoning_questions else ('', [])
+    shared_reasoning = (
+        len(reasoning_questions) > 1 and bool(shared_context or shared_table)
+        and all(question_material(q) == (shared_context, shared_table) for q in reasoning_questions[1:])
+    )
+
     answer_key = []
     for number, question in enumerate(questions, 1):
-        context, table_data = question.get('context'), question.get('table')
+        uses_shared_reasoning = shared_reasoning and 21 <= number <= 25
+        if uses_shared_reasoning and number == 21:
+            instruction = doc.add_paragraph('Answer the following questions using the scenario and data below.')
+            instruction.paragraph_format.keep_with_next = True
+            add_question_material(doc, shared_context, shared_table)
         if include_key:
             heading = doc.add_paragraph()
             heading.paragraph_format.space_after = Pt(0)
             heading.paragraph_format.keep_with_next = True
             heading.add_run(f'Question {number}').bold = True
-        if context:
-            doc.add_paragraph(context)
-        if table_data:
-            table = doc.add_table(rows=0, cols=max(map(len, table_data)))
-            table.style = 'Table Grid'
-            for values in table_data:
-                cells = table.add_row().cells
-                for cell, value in zip(cells, values):
-                    cell.text = value
+        if not uses_shared_reasoning:
+            add_question_material(doc, *question_material(question))
         pairs = question.get('pairs', []) if question['type'] == 'matching' else []
         options = question.get('options', []) if include_key else []
         stem = doc.add_paragraph(question['text'])
