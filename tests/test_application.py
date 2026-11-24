@@ -72,6 +72,40 @@ class ApplicationTests(unittest.TestCase):
         response = self.put_state(current['state'], current['revision'])
         self.assertEqual(response.status_code, 200, response.json)
 
+    def test_question_set_word_exports_are_admin_only_and_use_saved_defaults(self):
+        current = self.state()
+        matching = dict(question('matching', key=[]), id='q2',
+                        pairs=[{'left': 'First', 'right': 'Alpha'}, {'left': 'Second', 'right': 'Beta'}])
+        language = dict(question('multiple', key=[0, 1]), context='Shared passage',
+                        table=[['Year', 'Count'], ['2026', '42']])
+        current['state']['questionSets']['language'] = [language, matching]
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        root = '/api/admin/question-sets/'
+        self.assertEqual(self.app.test_client().get(root + 'aptitude/export').status_code, 401)
+        self.assertEqual(self.admin.get(root + 'unknown/export').status_code, 400)
+        for kind in ('aptitude', 'language', 'prompt'):
+            with self.subTest(kind=kind):
+                response = self.admin.get(root + kind + '/export')
+                self.assertEqual(response.status_code, 200)
+                self.assertIn('.docx', response.headers['Content-Disposition'])
+                self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                doc = Document(io.BytesIO(response.data))
+                paragraphs = [p.text for p in doc.paragraphs]
+                if kind == 'prompt':
+                    self.assertEqual(paragraphs, ['Synthetic test question'])
+                else:
+                    self.assertEqual(paragraphs[0], 'Question 1')
+                    self.assertIn('Answer Key', paragraphs)
+                    self.assertIn('A. One   B. Two', paragraphs)
+                    self.assertEqual(doc.styles['Normal'].font.name, 'Segoe UI')
+                    self.assertTrue(doc.paragraphs[0].runs[0].bold)
+                    if kind == 'aptitude':
+                        self.assertEqual(paragraphs[-1], 'B')
+                    else:
+                        self.assertEqual(doc.tables[0].cell(1, 1).text, '42')
+                        self.assertIn('Shared passage', paragraphs)
+                        self.assertEqual(paragraphs[-2:], ['A, B', '1 → B, 2 → A'])
+
     def test_targeted_test_creation_preserves_other_admin_updates(self):
         other_drive = uid()
         current = self.state()
