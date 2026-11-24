@@ -27,7 +27,7 @@ const run=code=>vm.runInContext(code,context);
  assert(document.querySelector('#app').innerHTML.includes('Session scheduler'));
  assert(!document.querySelector('#app').innerHTML.includes("nav('dashboard')"));
  const overviewTotals=html=>[...html.matchAll(/<li class="overview-summary-tile">[\s\S]*?<div><span>([^<]+)<\/span><strong>([^<]+)<\/strong>/g)].map(([,label,count])=>[label,Number(count)]);
- const labels=['Number of drives','Candidates attended','Interview shortlisted','Selected','On hold'];
+ const labels=['Completed Drives','Candidates attended','Interview shortlisted','Selected','On hold'];
  assert.deepEqual(overviewTotals(run('overviewPage()')),labels.map(label=>[label,0]));
  const overviewFixture=run(`(() => {
     const previous=state;
@@ -46,7 +46,7 @@ const run=code=>vm.runInContext(code,context);
         return overviewPage();
     } finally { state=previous; }
  })()`);
- assert.deepEqual(overviewTotals(overviewFixture),labels.map((label,index)=>[label,[2,3,2,1,1][index]]));
+ assert.deepEqual(overviewTotals(overviewFixture),labels.map((label,index)=>[label,[1,3,2,1,1][index]]));
  assert(overviewFixture.indexOf('Recruitment totals')>overviewFixture.indexOf('<h1>Overview</h1>'));
  assert(overviewFixture.indexOf('Recruitment totals')<overviewFixture.indexOf('Live Drives'));
  run('startDrive()');document.querySelector('#driveName').value='Synthetic College';
