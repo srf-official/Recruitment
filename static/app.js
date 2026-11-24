@@ -540,7 +540,7 @@ function overviewCounts(drive) {
 }
 function overviewSummary(totals) {
     const metrics = [
-        ['college', totals.drives, 'Number of drives'],
+        ['college', totals.completedDrives, 'Completed Drives'],
         ['attended', totals.attended, 'Candidates attended'],
         ['interview', totals.interview, 'Interview shortlisted'],
         ['selected', totals.selected, 'Selected'],
@@ -568,11 +568,12 @@ function overviewCard(drive, count = overviewCounts(drive)) {
     return `<article class="overview-drive-card card"><div class="overview-card-head"><span class="overview-drive-icon">${uiIcon('college')}</span><div><strong>${esc(drive.name)}</strong><small>${drive.finishedAt ? `Finished ${date(drive.finishedAt)}` : `Created ${date(drive.createdAt)}`}</small></div>${badge(status)}</div><div class="overview-metrics">${metricRows}</div><div class="overview-open"><button class="overview-score-link" onclick="showFinalScores('${drive.id}')">Open final scores</button><button class="overview-drive-link" onclick="openDriveScheduler('${drive.id}')"><span>Open drive</span><span class="overview-open-arrow">${uiIcon('arrow')}</span></button></div></article>`;
 }
 function overviewPage() {
-    const totals = {drives: state.drives.length, attended: 0, interview: 0, selected: 0, onHold: 0};
+    const totals = {completedDrives: 0, attended: 0, interview: 0, selected: 0, onHold: 0};
     const countsByDrive = new Map();
     for (const drive of state.drives) {
         const count = overviewCounts(drive);
         countsByDrive.set(drive.id, count);
+        totals.completedDrives += Number(Boolean(drive.finishedAt));
         totals.attended += count.attended;
         totals.interview += count.interview;
         totals.selected += count.selected;

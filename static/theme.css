@@ -43,9 +43,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .shell .footer-note{font-size:10px;color:#8b9ca7}
 .overview-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;list-style:none;margin:0;padding:0}
 .shell.overview-shell .workspace{background:#fff}
-.overview-summary-tile{--accent:#359d9a;display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:flex-start;gap:10px;min-width:0;min-height:120px;padding:14px 16px 16px;background:#fff;border:1px solid #dfe9ed;border-top:4px solid var(--accent);border-radius:13px;box-shadow:0 4px 10px #23384414}
+.overview-summary-tile{--accent:#227c79;display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:flex-start;gap:10px;min-width:0;min-height:120px;padding:14px 16px 16px;background:#fff;border:1px solid #dfe9ed;border-top:4px solid var(--accent);border-radius:13px;box-shadow:0 3px 8px #2338441a}
 .overview-summary-tile>div{display:flex;flex:1;flex-direction:column;min-width:0;align-self:stretch}
-.overview-summary-tile>div>span{color:#536d7b;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+.overview-summary-tile>div>span{color:var(--accent);font-weight:600;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
 .overview-summary-tile strong{margin-top:auto;padding-top:10px;color:#233844;font-size:30px;line-height:1.15;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .overview-summary-icon{display:grid;place-items:center;flex:0 0 34px;height:34px;border-radius:50%;box-shadow:0 2px 6px #23384415}
 .overview-summary-icon .ui-icon{width:18px;height:18px}
@@ -54,10 +54,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .overview-summary-interview{background:#efe7fa;color:#70549b}
 .overview-summary-selected{background:#d9f5e5;color:#237044}
 .overview-summary-hold{background:#ffedca;color:#906005}
-.overview-summary-tile:has(.overview-summary-attended){--accent:#5998d4}
-.overview-summary-tile:has(.overview-summary-interview){--accent:#9874bb}
-.overview-summary-tile:has(.overview-summary-selected){--accent:#159b68}
-.overview-summary-tile:has(.overview-summary-hold){--accent:#c88929}
+.overview-summary-tile:has(.overview-summary-attended){--accent:#356eaa}
+.overview-summary-tile:has(.overview-summary-interview){--accent:#79529d}
+.overview-summary-tile:has(.overview-summary-selected){--accent:#15744f}
+.overview-summary-tile:has(.overview-summary-hold){--accent:#966415}
 @media(max-width:1200px){.overview-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:860px){.overview-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:350px){.overview-summary{grid-template-columns:1fr}}
