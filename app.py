@@ -24,7 +24,7 @@ from sso import install_sso
 from configuration import update_configuration
 from domain import (DURATIONS, RuleError, clean_text, grade, require,
                     public_questions, responses_validated, student_key)
-from exports import excel, final_excel, filename, results_rows, words, gd_excel, language_parts, prompt_workbook
+from exports import excel, final_excel, filename, results_rows, words, gd_excel, language_parts, prompt_workbook, question_set_docx
 from store import Store, attempts, login_limits, now_ms
 
 
@@ -184,6 +184,18 @@ def create_app(settings=None):
         with store.transaction() as tx:
             tx.expire()
             return jsonify(state=tx.export_state(), revision=tx.next_version(), serverNow=now_ms())
+
+    @app.get('/api/admin/question-sets/<kind>/export')
+    @admin
+    def export_question_set(kind):
+        names = {'aptitude': 'Aptitude', 'language': 'Language and Reasoning', 'prompt': 'Prompt Engineering'}
+        require(kind in names, 'Invalid test type.')
+        with store.transaction() as tx:
+            questions = tx.state['questionSets'].get(kind, [])
+        require(questions, 'Add questions before exporting.')
+        return send_file(io.BytesIO(question_set_docx(questions, include_key=kind != 'prompt')),
+                         as_attachment=True, download_name=f'{names[kind]} Question Set.docx',
+                         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
     @app.put('/api/admin/state')
     @admin
