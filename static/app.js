@@ -538,8 +538,22 @@ function overviewCounts(drive) {
  const aptitude=new Set(tests.filter(t=>t.type==='aptitude').flatMap(t=>(t.attempts||[]).filter(a=>a.shortlisted).map(a=>a.studentId.normalize('NFKC').toLowerCase()))).size, decisions=Object.values(drive.finalDecisions||{});
  return {attended,aptitude,interview:decisions.filter(d=>d.interviewShortlisted).length,selected:decisions.filter(d=>d.outcome==='selected').length,onHold:decisions.filter(d=>d.outcome==='on-hold').length};
 }
-function overviewCard(drive) {
-    const count = overviewCounts(drive), status = driveStatus(drive);
+function overviewSummary(totals) {
+    const metrics = [
+        ['college', totals.drives, 'Number of drives'],
+        ['attended', totals.attended, 'Candidates attended'],
+        ['interview', totals.interview, 'Interview shortlisted'],
+        ['selected', totals.selected, 'Selected'],
+        ['hold', totals.onHold, 'On hold']
+    ];
+    return `<ul class="overview-summary" aria-label="Recruitment totals">${metrics.map(([icon, value, label]) => `
+        <li class="overview-summary-tile">
+            <span class="overview-summary-icon overview-summary-${icon}">${uiIcon(icon)}</span>
+            <div><span>${label}</span><strong>${value.toLocaleString()}</strong></div>
+        </li>`).join('')}</ul>`;
+}
+function overviewCard(drive, count = overviewCounts(drive)) {
+    const status = driveStatus(drive);
     const metrics = [
         ['attended', count.attended, 'Attended'],
         ['aptitude', count.aptitude, 'Aptitude shortlist'],
@@ -554,10 +568,21 @@ function overviewCard(drive) {
     return `<article class="overview-drive-card card"><div class="overview-card-head"><span class="overview-drive-icon">${uiIcon('college')}</span><div><strong>${esc(drive.name)}</strong><small>${drive.finishedAt ? `Finished ${date(drive.finishedAt)}` : `Created ${date(drive.createdAt)}`}</small></div>${badge(status)}</div><div class="overview-metrics">${metricRows}</div><div class="overview-open"><button class="overview-score-link" onclick="showFinalScores('${drive.id}')">Open final scores</button><button class="overview-drive-link" onclick="openDriveScheduler('${drive.id}')"><span>Open drive</span><span class="overview-open-arrow">${uiIcon('arrow')}</span></button></div></article>`;
 }
 function overviewPage() {
+    const totals = {drives: state.drives.length, attended: 0, interview: 0, selected: 0, onHold: 0};
+    const countsByDrive = new Map();
+    for (const drive of state.drives) {
+        const count = overviewCounts(drive);
+        countsByDrive.set(drive.id, count);
+        totals.attended += count.attended;
+        totals.interview += count.interview;
+        totals.selected += count.selected;
+        totals.onHold += count.onHold;
+    }
+    const renderCard = drive => overviewCard(drive, countsByDrive.get(drive.id));
     const live = state.drives.filter(d => !d.finishedAt).sort((a, b) => b.createdAt - a.createdAt), finished = state.drives.filter(d => d.finishedAt).sort((a, b) => b.finishedAt - a.finishedAt);
-    const liveCards = live.map(overviewCard).join('') || '<div class="empty card">No live or upcoming drives yet. Start a drive to begin.</div>';
-    const finishedCards = finished.map(overviewCard).join('') || '<div class="empty card">No finished drives yet.</div>';
-    return `<div class="heading overview-heading"><div><h1>Overview</h1></div><button class="primary" onclick="startDrive()">＋ Start a drive</button></div><section class="overview-section"><div class="overview-section-heading"><h2>Live Drives</h2><span class="chip status-live">${live.length} drives</span></div><div class="overview-drive-grid">${liveCards}</div></section><section class="overview-section"><div class="overview-section-heading"><div><h2>Finished drives</h2><p class="sub">Drives ended by an administrator.</p></div><span class="chip status-finished">${finished.length} drives</span></div><div class="overview-drive-grid">${finishedCards}</div></section>`;
+    const liveCards = live.map(renderCard).join('') || '<div class="empty card">No live or upcoming drives yet. Start a drive to begin.</div>';
+    const finishedCards = finished.map(renderCard).join('') || '<div class="empty card">No finished drives yet.</div>';
+    return `<div class="heading overview-heading"><div><h1>Overview</h1></div><button class="primary" onclick="startDrive()">＋ Start a drive</button></div>${overviewSummary(totals)}<section class="overview-section"><div class="overview-section-heading"><h2>Live Drives</h2><span class="chip status-live">${live.length} drives</span></div><div class="overview-drive-grid">${liveCards}</div></section><section class="overview-section"><div class="overview-section-heading"><div><h2>Finished drives</h2><p class="sub">Drives ended by an administrator.</p></div><span class="chip status-finished">${finished.length} drives</span></div><div class="overview-drive-grid">${finishedCards}</div></section>`;
 }
 function openDriveScheduler(id) { expandedDrive = id; filterName = ''; filterStatus = 'all'; view = 'sessions'; renderAdmin(); }
 function renderAdmin() { if (!['overview', 'sessions', 'question', 'final'].includes(view)) view = 'overview'; const content = view === 'overview' ? overviewPage() : view === 'question' ? questionOverview() : view === 'final' ? finalScoresPage() : scheduler(); app.innerHTML = shell(content); }

@@ -41,6 +41,21 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .shell .primary,.shell.overview-shell .primary{background:#008781;border-color:#008781;color:#fff}
 .shell .primary:hover{background:#007771;border-color:#007771;filter:none}
 .shell .footer-note{font-size:10px;color:#8b9ca7}
+.overview-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;list-style:none;margin:0;padding:0}
+.overview-summary-tile{display:flex;align-items:flex-start;gap:10px;min-width:0;padding:14px;background:#fff;border:1px solid #dfe9ed;border-radius:13px;box-shadow:0 3px 10px #264e600b}
+.overview-summary-tile>div{min-width:0}
+.overview-summary-tile>div>span{display:block;color:#536d7b;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.overview-summary-tile strong{display:block;margin-top:5px;color:#233844;font-size:26px;line-height:1.15;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.overview-summary-icon{display:grid;place-items:center;flex:0 0 32px;height:32px;border-radius:9px}
+.overview-summary-icon .ui-icon{width:17px;height:17px}
+.overview-summary-college{background:#e3f5f2;color:#087c75}
+.overview-summary-attended{background:#eaf2fc;color:#3b6590}
+.overview-summary-interview{background:#f0eafa;color:#70549b}
+.overview-summary-selected{background:#e8f5e9;color:#2a7547}
+.overview-summary-hold{background:#fff3d9;color:#906005}
+@media(max-width:1200px){.overview-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:860px){.overview-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:350px){.overview-summary{grid-template-columns:1fr}}
 .overview-section{margin:28px 0 34px}
 .overview-section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:17px}
 .overview-section-heading h2{font-size:20px;font-weight:600;line-height:1.35;letter-spacing:-.35px;color:#243b47;margin:0 0 4px}
