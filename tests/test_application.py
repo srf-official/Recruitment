@@ -106,6 +106,39 @@ class ApplicationTests(unittest.TestCase):
                         self.assertIn('Shared passage', paragraphs)
                         self.assertEqual(paragraphs[-2:], ['A, B', '1 → B, 2 → A'])
 
+    def test_language_question_export_groups_shared_reasoning_material(self):
+        current = self.state()
+        language = [dict(question(), id=f'q{i}', text=f'Stem {i}') for i in range(1, 26)]
+        for q in language[20:]:
+            q.update(context='A common scenario', table=[['Year', 'Count'], ['2026', '42']])
+        current['state']['questionSets']['language'] = language
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        path = '/api/admin/question-sets/language/export'
+        response = self.admin.get(path)
+        self.assertEqual(response.status_code, 200)
+        doc = Document(io.BytesIO(response.data))
+        paragraphs = [p.text for p in doc.paragraphs]
+        start = paragraphs.index('Question 20')
+        end = paragraphs.index('Answer Key')
+        self.assertEqual(paragraphs[start:end], [
+            'Question 20', 'Stem 20', 'A. One   B. Two',
+            'Answer the following questions using the scenario and data below.', 'A common scenario',
+            *(line for i in range(21, 26) for line in (f'Question {i}', f'Stem {i}', 'A. One   B. Two')),
+        ])
+        self.assertEqual(paragraphs[end + 1:], ['B'] * 25)
+        self.assertEqual(len(doc.tables), 1)
+        self.assertEqual(doc.tables[0].cell(1, 1).text, '42')
+        self.assertEqual(''.join(doc.tables[0]._tbl.getnext().xpath('.//w:t/text()')), 'Question 21')
+
+        # Distinct source material must still be included with its original question.
+        current = self.state()
+        current['state']['questionSets']['language'][24]['context'] = 'Different scenario'
+        self.assertEqual(self.put_state(current['state'], current['revision']).status_code, 200)
+        doc = Document(io.BytesIO(self.admin.get(path).data))
+        paragraphs = [p.text for p in doc.paragraphs]
+        self.assertEqual(paragraphs[paragraphs.index('Question 25') + 1], 'Different scenario')
+        self.assertEqual(len(doc.tables), 5)
+
     def test_targeted_test_creation_preserves_other_admin_updates(self):
         other_drive = uid()
         current = self.state()
